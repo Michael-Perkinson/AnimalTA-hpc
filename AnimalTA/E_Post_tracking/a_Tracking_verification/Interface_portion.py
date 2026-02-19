@@ -11,7 +11,7 @@ from AnimalTA.C_Pretracking.a_Parameters_track import Interface_parameters_track
 class Show(Frame):
     """This Frame is used to rerun the tracking over a portion of the video, to correct potential tracking mistakes.
     To this aim, the user can define temporary tracking parameters that will be used for this portion only."""
-    def __init__(self, parent, boss, Vid, Video_liste, prev_row=None, Arena=None, **kwargs):
+    def __init__(self, parent, boss, Vid, Video_liste, prev_row=None, Arena=None, First_frame=None, **kwargs):
         Frame.__init__(self, parent, bd=5, **kwargs)
         self.config(**Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
         self.parent = parent
@@ -23,6 +23,11 @@ class Show(Frame):
         self.boss.PortionWin.grab_set()
         self.prev_row=prev_row
         self.Arena=Arena
+
+        if First_frame is None:
+            self.First_frame = self.Vid.Cropped[1][0]
+        else:
+            self.First_frame=First_frame
 
         #Import language
         self.Language = StringVar()
@@ -102,7 +107,8 @@ class Show(Frame):
         self.Coos, _ = CoosLS.load_coos(self.Vid, TMP=True, location=self)
         self.NB_ind = len(self.Vid.Identities)
 
-        self.Vid_Lecteur = Class_Lecteur.Lecteur(self, self.Vid, ecart=5)
+        self.Vid_Lecteur = Class_Lecteur.Lecteur(self, self.Vid, ecart=5, First_frame=self.First_frame)
+
         self.Vid_Lecteur.grid(row=0, column=0, sticky="nsew")
         self.Scrollbar = self.Vid_Lecteur.Scrollbar
         self.Vid_Lecteur.canvas_video.update()
@@ -143,9 +149,9 @@ class Show(Frame):
         self.Vid_Lecteur.proper_close()#We ensure the last decord is well closed
 
         if self.Vid.Track[1][8]:
-            Do_the_track.Do_tracking(self, self.Vid, self.Folder, type="fixed", portion=True, prev_row=self.prev_row, arena_interest=self.Arena)
+            Do_the_track.Do_tracking(self, self.Vid, self.Folder, type="fixed", portion=True, prev_row=self.prev_row, arena_interest=self.Arena, ref_frame=self.First_frame)
         else:
-            Do_the_track.Do_tracking(self, self.Vid, self.Folder, type="variable", portion=True, prev_row=self.prev_row, arena_interest=self.Arena)
+            Do_the_track.Do_tracking(self, self.Vid, self.Folder, type="variable", portion=True, prev_row=self.prev_row, arena_interest=self.Arena, ref_frame=self.First_frame)
 
         self.Coos, _ = CoosLS.load_coos(self.Vid, TMP=True, location=self)
 
@@ -161,7 +167,7 @@ class Show(Frame):
         self.B_validate_track.config(state="normal")
         self.B_validate_track.config(background=Color_settings.My_colors.list_colors["Validate"], fg=Color_settings.My_colors.list_colors["Fg_Validate"])
 
-        self.Vid_Lecteur = Class_Lecteur.Lecteur(self, self.Vid, ecart=5)
+        self.Vid_Lecteur = Class_Lecteur.Lecteur(self, self.Vid, ecart=5, First_frame=self.First_frame)
         self.Vid_Lecteur.grid(row=0, column=0, sticky="nsew")
         self.Scrollbar = self.Vid_Lecteur.Scrollbar
         self.Vid_Lecteur.canvas_video.update()
@@ -248,12 +254,12 @@ class Show(Frame):
     def change_back(self):
         self.boss.PortionWin.grab_release()
         newWindow = Toplevel(self.parent.master)
-        interface = Interface_back.Background(parent=newWindow, boss=self.boss, main_frame=self, Video_file=self.Vid, portion=True)
+        interface = Interface_back.Background(parent=newWindow, boss=self.boss, main_frame=self, Video_file=self.Vid, portion=True, ref_frame=self.First_frame)
 
     def change_params(self):
         self.boss.PortionWin.grab_release()
         newWindow = Toplevel(self.parent.master)
-        interface= Interface_parameters_track.Param_definer(parent=newWindow, boss=self.boss, main_frame=self, Video_file=self.Vid, portion=True)
+        interface= Interface_parameters_track.Param_definer(parent=newWindow, boss=self.boss, main_frame=self, Video_file=self.Vid, portion=True, ref_frame=self.First_frame)
 
 """
 root = Tk()

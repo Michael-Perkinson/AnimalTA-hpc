@@ -1,22 +1,32 @@
+import time
 from tkinter import *
 from tkinter import ttk
-from AnimalTA.A_General_tools import UserMessages, Diverse_functions, Color_settings
+import cv2
+from AnimalTA.A_General_tools import UserMessages, Diverse_functions, Color_settings, Message_simple_question as MsgBox, Function_draw_arenas as Dr, Class_loading_Frame
 from AnimalTA.E_Post_tracking.b_Analyses import Interface_sequences
 import copy
 import os
 import pandas as pd
 from pandastable import Table, TableModel, util
+from tkinter import filedialog
+import re
+import threading
+import h5py
+
 
 
 class Int_import(Frame):
-    def __init__(self, parent, boss, files, Vid, **kwargs):
+    def __init__(self, parent, boss, files, Vid, physical=True, new=True, **kwargs):
         Frame.__init__(self, parent, bd=5, **kwargs)
         self.list_colors=Color_settings.My_colors.list_colors
-        self.grid(sticky="nsew")
+        if physical:
+            self.grid(sticky="nsew")
         self.parent=parent
         self.Vid=Vid
         self.boss=boss
         self.files=files
+
+        self.config(**Color_settings.My_colors.Frame_Base)
 
         self.sep=StringVar()# Which separator does the original file use
         self.sep.set(self.boss.import_values["Sep"])
@@ -24,22 +34,23 @@ class Int_import(Frame):
         self.header=IntVar() #Do the original file use a header? If 0, we try to determine it automatically, 1 no header, 2 header
         self.header.set(self.boss.import_values["Header"])
 
-        self.or_Tab=Frame(self)
-        self.or_Tab.grid(row=1,column=0)
+        or_Tab_Label = Label(self, text="Original table", **Color_settings.My_colors.Label_Base)
+        or_Tab_Label.config(font=("Helvetica 13 bold"))
+        or_Tab_Label.grid(row=1,column=0)
+        self.or_Tab=Frame(self, **Color_settings.My_colors.Frame_Base)
+        self.or_Tab.grid(row=2,column=0)
 
-        self.res_Tab = Frame(self)
-        self.res_Tab.grid(row=1, column=1)
+        res_Tab_Label = Label(self, text="Converted for AnimalTA", **Color_settings.My_colors.Label_Base)
+        res_Tab_Label.config(font=("Helvetica 13 bold"))
+        res_Tab_Label.grid(row=1, column=1)
+        self.res_Tab = Frame(self, **Color_settings.My_colors.Frame_Base)
+        self.res_Tab.grid(row=2, column=1)
 
 
         #Options for the user
-        Frame_info=Frame(self)
+        Frame_info=Frame(self, **Color_settings.My_colors.Frame_Base)
         Frame_info.grid(row=0,column=0, columnspan=2)
 
-        #Choose the separator
-        self.Entry_Sep=Entry(Frame_info, textvariable=self.sep)
-        self.Entry_Sep.grid(row=0, column=1)
-        Validate_Entry=Label(Frame_info, text='Separator:')
-        Validate_Entry.grid(row=0, column=0)
 
         #Messages importation
         self.Language = StringVar()
@@ -48,6 +59,12 @@ class Int_import(Frame):
         self.LanguageO = self.Language.get()
         self.Messages = UserMessages.Mess[self.Language.get()]
         f.close()
+
+        #Choose the separator
+        self.Entry_Sep=Entry(Frame_info, textvariable=self.sep, **Color_settings.My_colors.Entry_Base)
+        self.Entry_Sep.grid(row=0, column=1)
+        Validate_Entry=Label(Frame_info, text='Separator:', **Color_settings.My_colors.Label_Base)
+        Validate_Entry.grid(row=0, column=0)
 
 
         #Indicate if the header is present or no
@@ -64,7 +81,7 @@ class Int_import(Frame):
         self.Fr_pos.set(self.boss.import_values["Fr_col"])
         self.Entry_Fr_pos=Entry(Frame_info, textvariable=self.Fr_pos, **Color_settings.My_colors.Entry_Base)
         self.Entry_Fr_pos.grid(row=0, column=6, sticky="w")
-        Label(Frame_info, text=self.Messages["Import_data1"]+":").grid(row=0, column=5, sticky="w")
+        Label(Frame_info, text=self.Messages["Import_data1"]+":", **Color_settings.My_colors.Label_Base).grid(row=0, column=5, sticky="w")
 
 
         #Indicate which column is the one for Time:
@@ -95,13 +112,13 @@ class Int_import(Frame):
         ttk.Separator(Frame_info, orient=VERTICAL).grid(row=0, column=10, rowspan=3, sticky="ns")
         self.Col_X=StringVar()
         self.Col_X.set(self.boss.import_values["Col_x"])
-        Label(Frame_info, text=self.Messages["Import_data6"]+":").grid(row=0, column=11)
+        Label(Frame_info, text=self.Messages["Import_data6"]+":", **Color_settings.My_colors.Label_Base).grid(row=0, column=11)
         self.Entry_X_pos=Entry(Frame_info, textvariable=self.Col_X)
         self.Entry_X_pos.grid(row=0, column=12)
 
         self.Col_Y=StringVar()
         self.Col_Y.set(self.boss.import_values["Col_y"])
-        Label(Frame_info, text=self.Messages["Import_data7"]+":").grid(row=1, column=11)
+        Label(Frame_info, text=self.Messages["Import_data7"]+":", **Color_settings.My_colors.Label_Base).grid(row=1, column=11)
         self.Entry_Y_pos=Entry(Frame_info, textvariable=self.Col_Y)
         self.Entry_Y_pos.grid(row=1, column=12)
 
@@ -111,14 +128,6 @@ class Int_import(Frame):
         Validate_new_pos.config( bg=Color_settings.My_colors.list_colors["Button_ready"], fg=Color_settings.My_colors.list_colors["Fg_Button_ready"])
         Validate_new_pos.grid(row=3, column=0, columnspan=20, sticky="nsew")
 
-
-        #Importation of messages
-        self.Language = StringVar()
-        f = open(UserMessages.resource_path("AnimalTA/Files/Language"), "r", encoding="utf-8")
-        self.Language.set(f.read())
-        self.LanguageO = self.Language.get()
-        f.close()
-        self.Messages = UserMessages.Mess[self.Language.get()]
 
 
         #Button to validate once the position is chosen
@@ -130,11 +139,19 @@ class Int_import(Frame):
         B_Cancel.config(background=Color_settings.My_colors.list_colors["Cancel"],fg=Color_settings.My_colors.list_colors["Fg_Cancel"])
         B_Cancel.grid(row=5, column=1, sticky="nsew")
 
+        self.Arenas = Dr.get_arenas(self.Vid)
 
+        self.reset_ind_in_arenas()
         self.stay_on_top()
-        self.create_new()
+        if new:
+            self.create_new()
 
-    def load_files(self, files, reset_H=False):
+    def reset_ind_in_arenas(self):
+        self.Ind_in_arenas = [0 for A in range(len(self.Vid.Track[1][6]))]
+
+
+    def load_files(self, files, show=True):
+        self.reset_ind_in_arenas()
         try:
             for file in files:
                 if self.header.get()==0:
@@ -147,14 +164,14 @@ class Int_import(Frame):
                         self.header.set(1)
 
                 elif self.header.get()==2:
-                    data = pd.read_csv(file, header=[0], sep=self.sep.get(), engine='python', na_filter = False)
+                    data = pd.read_csv(file, header=0, sep=self.sep.get(), engine='python', na_filter = False)
                 else:
                     data = pd.read_csv(file, header=None, sep=self.sep.get(), engine='python', na_filter = False)
 
                 self.or_data=data
                 self.table = Table(self.or_Tab, dataframe=data, showtoolbar=False, showstatusbar=False)
-
-                self.table.show()
+                if show:
+                    self.table.show()
                 self.resize_columns(self.table)
             return True
         except:
@@ -198,9 +215,9 @@ class Int_import(Frame):
 
     def create_new(self):
         all_clear = True
+        show_warn = False
 
         loaded=self.load_files(self.files)
-
         if loaded:
             self.Entry_Sep.config(**Color_settings.My_colors.Entry_Base)
 
@@ -208,6 +225,7 @@ class Int_import(Frame):
                 self.Entry_ID_column.config(state="disabled")
             else:
                 self.Entry_ID_column.config(state="normal")
+
 
             if self.Time_pos.get()=="" and self.Fr_pos.get()=="":
                 one_every = self.Vid.Frame_rate[0] / self.Vid.Frame_rate[1]
@@ -218,24 +236,13 @@ class Int_import(Frame):
 
             elif self.Fr_pos.get()!="":
                 try:
-                    try:
-                        Fr_pos = self.or_data.columns.get_loc(self.Fr_pos.get())
-                    except:
-                        Fr_pos = int(self.Fr_pos.get()) - 1
-
-                    self.trans_data = pd.DataFrame(self.or_data.iloc[:, [int(Fr_pos)]].copy())
-                    self.trans_data.columns = ["Frame"]
-                    self.trans_data["Time"] = self.trans_data["Frame"].copy()
-                    self.trans_data["Time"] = pd.to_numeric(self.trans_data["Time"])
-                    self.trans_data["Time"] = self.trans_data["Time"].div(self.Vid.Frame_rate[1])
-                    self.trans_data["Frame"] = self.trans_data.Frame.astype(float)
-                    self.trans_data["Frame"] = self.trans_data["Frame"].round()
-                    self.trans_data["Frame"] = self.trans_data.Frame.astype(int)
-                    self.Entry_Fr_pos.config(**Color_settings.My_colors.Entry_Base)
+                    Fr_pos = self.or_data.columns.get_loc(self.Fr_pos.get())
                 except:
-                    self.trans_data = pd.DataFrame()
-                    self.Entry_Fr_pos.config(**Color_settings.My_colors.Entry_error)
-                    all_clear=False
+                    Fr_pos = int(self.Fr_pos.get()) - 1
+
+                Frames = pd.DataFrame(self.or_data.iloc[:, [int(Fr_pos)]].copy())
+                self.trans_data = add_Time_from_frames(Frames, self.Vid)
+                self.Entry_Fr_pos.config(**Color_settings.My_colors.Entry_Base)
 
             else:
                 try:
@@ -288,38 +295,91 @@ class Int_import(Frame):
                 else:
                     self.Entry_ID_column.config(**Color_settings.My_colors.Entry_Base)
 
-
             # Driver code
             valideX, columnsX = self.extract_row_number(self.Col_X.get())
             valideY, columnsY = self.extract_row_number(self.Col_Y.get())
             if valideX and valideY and len(columnsX)==len(columnsY):
                 if self.orga_ind.get() == 0:
                     [0]*len(columnsX)
-                    if int(sum(self.Vid.Track[1][6])) == len(columnsX):
-                        arenas=[]
-                        passed = 0
-                        arena = 0
+                    if len(self.Vid.Track[1][6])>1:
                         for I in range(len(columnsX)):
-                            arenas.append(arena)
-                            passed += 1
-                            if passed >= int(sum(self.Vid.Track[1][6][0:(arena+1)])):
-                                arena += 1
+                            X_mean = int(self.or_data.iloc[:, [columnsX[I]]].copy().mean())
+                            Y_mean = int(self.or_data.iloc[:, [columnsY[I]]].copy().mean())
+                            show_warn_ind, Are = find_ind_ar(self.Arenas, [X_mean, Y_mean])
+                            self.Ind_in_arenas[Are] += 1
+                            if show_warn_ind:
+                                show_warn=True
+
                     else:
-                        arenas = [1 for a in range(len(columnsX))]
+                        Are = 0
+                        self.Ind_in_arenas[0] += 1
 
                     ind=0
                     for col in range(len(columnsX)):
-                        self.trans_data["X_Arena"+str(arenas[col])+"_Ind"+str(ind)]=self.or_data.iloc[:, [int(columnsX[col])]].copy()
-                        self.trans_data["Y_Arena"+str(arenas[col])+"_Ind" + str(ind)] = self.or_data.iloc[:, [int(columnsY[col])]].copy()
-                        self.trans_data["X_Arena"+str(arenas[col])+"_Ind"+str(ind)]=pd.to_numeric(self.trans_data["X_Arena"+str(arenas[col])+"_Ind"+str(ind)], errors='coerce').fillna("NA")
-                        self.trans_data["Y_Arena"+str(arenas[col])+"_Ind"+str(ind)]=pd.to_numeric(self.trans_data["Y_Arena"+str(arenas[col])+"_Ind"+str(ind)], errors='coerce').fillna("NA")
+                        self.trans_data["X_Arena"+str(Are)+"_Ind"+str(ind)]=self.or_data.iloc[:, [int(columnsX[col])]].copy()
+                        self.trans_data["Y_Arena"+str(Are)+"_Ind" + str(ind)] = self.or_data.iloc[:, [int(columnsY[col])]].copy()
+                        self.trans_data["X_Arena"+str(Are)+"_Ind"+str(ind)]=pd.to_numeric(self.trans_data["X_Arena"+str(Are)+"_Ind"+str(ind)], errors='coerce').fillna("NA")
+                        self.trans_data["Y_Arena"+str(Are)+"_Ind"+str(ind)]=pd.to_numeric(self.trans_data["Y_Arena"+str(Are)+"_Ind"+str(ind)], errors='coerce').fillna("NA")
                         ind+=1
                 else:
-                    self.trans_data["X"] = self.or_data.iloc[:, [int(columnsX[0])]].copy()
-                    self.trans_data["Y"] = self.or_data.iloc[:, [int(columnsY[0])]].copy()
 
-                    pd.to_numeric(self.trans_data['X'],errors='coerce').fillna("NA")
-                    pd.to_numeric(self.trans_data['Y'], errors='coerce').fillna("NA")
+                    Load_show = Class_loading_Frame.Loading(self.parent, text="Preparing table")  # CTXT
+                    Load_show.grid()
+                    completed_parts = []
+
+                    for col in range(len(columnsX)):
+                        Load_show.show_load(col / len(columnsX))
+
+                        sub_trans = self.trans_data.copy()
+
+                        sub_trans["X"] = pd.to_numeric(
+                            self.or_data.iloc[:, int(columnsX[col])],
+                            errors="coerce"
+                        )
+                        sub_trans["Y"] = pd.to_numeric(
+                            self.or_data.iloc[:, int(columnsY[col])],
+                            errors="coerce"
+                        )
+
+                        means = (
+                            sub_trans
+                                .groupby("Ind")[["X", "Y"]]
+                                .mean()
+                                .round()
+                                .fillna(0)
+                                .astype(int)
+                        )
+
+                        arena_map = {}
+
+                        pos=0
+                        for ind, row in means.iterrows():
+                            Load_show.show_load((1 / len(columnsX)) * (pos / len(means)) + col / len(columnsX))
+                            pos += 1
+
+                            if len(self.Vid.Track[1][6]) > 1:
+                                show_warn_ind, Are = find_ind_ar(self.Arenas, [float(row["X"]), float(row["Y"])])
+                            else:
+                                Are = 0
+
+                            arena_map[ind] = Are
+                            self.Ind_in_arenas[Are] += 1
+
+                        sub_trans["Arena"] = sub_trans["Ind"].map(arena_map)
+
+                        if len(columnsX) > 1:
+                            suffix = "_" + self.or_data.columns[int(columnsX[col])]
+                            sub_trans["Ind"] = sub_trans["Ind"] + suffix
+
+                        sub_trans[["X", "Y"]] = sub_trans[["X", "Y"]].fillna("NA")
+
+                        completed_parts.append(sub_trans)
+
+                    completed_table = pd.concat(completed_parts, ignore_index=True)
+                    self.trans_data = completed_table
+
+                    Load_show.destroy()
+                    del Load_show
 
                 self.Entry_X_pos.config(**Color_settings.My_colors.Entry_Base)
                 self.Entry_Y_pos.config(**Color_settings.My_colors.Entry_Base)
@@ -332,7 +392,6 @@ class Int_import(Frame):
             #We fill the NAs:
             if self.orga_ind.get()==0:
                 missing_rows=sorted(set(range(self.trans_data.Frame.iat[0], self.trans_data.Frame.iat[-1])) - set(self.trans_data["Frame"]))
-
                 missing_rows=pd.DataFrame(missing_rows, columns=["Frame"])
 
                 missing_rows["Time"] = missing_rows["Frame"].copy()
@@ -344,9 +403,16 @@ class Int_import(Frame):
                         missing_rows[col]="NA"
 
                 self.trans_data=pd.concat([self.trans_data, missing_rows])
-                self.trans_data=self.trans_data.sort_values(["Frame"])
 
+            if self.orga_ind.get() == 0:
+                self.trans_data = orga_table(self.trans_data)
+
+            if self.orga_ind.get() == 1:
+                self.trans_data = self.trans_data.sort_values(["Frame", "Ind"])
+            else:
+                self.trans_data = self.trans_data.sort_values(["Frame"])
             self.table_new = Table(self.res_Tab, dataframe=self.trans_data, showtoolbar=False, showstatusbar=False)
+
 
             self.table_new.show()
             self.resize_columns(self.table_new)
@@ -360,6 +426,8 @@ class Int_import(Frame):
             self.BValidate.config(state="normal", bg=self.list_colors["Validate"], fg=self.list_colors["Fg_Validate"])
         else:
             self.BValidate.config(state="disable", **Color_settings.My_colors.Button_Base)
+
+        return(show_warn)
 
 
 
@@ -379,75 +447,402 @@ class Int_import(Frame):
         self.parent.lift()
         self.parent.after(50, self.stay_on_top)
 
-    def End_of_win(self):
-        self.parent.destroy()
-        self.destroy()
-        self.boss.afficher_projects()
-        self.boss.bind_everything()
-        self.boss.save()
-        self.boss.update()
-        self.boss.update_selections()
-        self.boss.update_row_display()
+    def End_of_win(self, bind=True):
+        return_to_boss(self.boss, bind)
         self.unbind_all("<Return>")
         self.grab_release()
+        self.parent.destroy()
+        self.destroy()
 
 
     def validate(self, *args):
         #Save the user's choice
         #End of this window
-        self.Vid.Identities = []
-        self.Vid.Sequences = []
-
-        if self.orga_ind.get()==1:
-            self.Vid.Track[1][8] = False
-            nb_ind=len(list(pd.unique(self.trans_data["Ind"])))
-            for Ind in list(pd.unique(self.trans_data["Ind"])):
-                self.Vid.Identities.append([0, str(Ind), Diverse_functions.random_color()[0]])  # 0: identity of target, from 0 to N, 1: in which arene, 2:Name of the target, 3:Color of the target
-                self.Vid.Sequences.append([Interface_sequences.full_sequence])
-        else:
-            self.Vid.Track[1][8] = True
-            nb_ind=int((len(self.trans_data.columns)-2)/2)
-            if int(sum(self.Vid.Track[1][6])) == nb_ind:
-                passed = 0
-                arena = 0
-                for Ind in range(int((len(self.trans_data.columns)-2)/2)):
-                    self.Vid.Identities.append([arena, "Ind"+str(Ind), Diverse_functions.random_color()[0]])  # 0: identity of target, from 0 to N, 1: in which arene, 2:Name of the target, 3:Color of the target
-                    self.Vid.Sequences.append([Interface_sequences.full_sequence])
-                    passed+=1
-                    if passed>=int(sum(self.Vid.Track[1][6][0:(arena+1)])):
-                        arena+=1
-
-            else:
-                for Ind in range(int((len(self.trans_data.columns)-2)/2)):
-                    self.Vid.Identities.append([0, "Ind"+str(Ind), Diverse_functions.random_color()[0]])  # 0: identity of target, from 0 to N, 1: in which arene, 2:Name of the target, 3:Color of the target
-                    self.Vid.Sequences.append([Interface_sequences.full_sequence])
-
-                self.Vid.Track[1][6] = [0 for i in self.Vid.Track[1][6]]
-                self.Vid.Track[1][6][0] = nb_ind
-
-
-        if self.Vid.User_Name == self.Vid.Name:
-            file_name = self.Vid.Name
-            point_pos = file_name.rfind(".")
-            if file_name[point_pos:].lower() != ".avi":
-                file_name = self.Vid.User_Name
-            else:
-                file_name = file_name[:point_pos]
-        else:
-            file_name = self.Vid.User_Name
-
-        if not os.path.isdir(os.path.join(self.boss.folder, "coordinates")):
-            os.makedirs(os.path.join(self.boss.folder, "coordinates"))
-
-        To_save = os.path.join(self.boss.folder, "Coordinates", file_name + "_Coordinates.csv")
-        self.trans_data.to_csv(To_save, sep=";", index=False)
-
-        self.Vid.Tracked = True
-        self.Vid.saved_repartition = copy.deepcopy(self.Vid.Track[1][6])
-        self.Vid.Identities_saved = copy.deepcopy(self.Vid.Identities)
-        self.Vid.Sequences_saved = copy.deepcopy(self.Vid.Sequences)
-
+        save_vid(type=self.orga_ind.get(),Vid=self.Vid,boss=self.boss,new_tab=self.trans_data, new_IDs=self.Ind_in_arenas)
         self.boss.import_values={"Sep": self.sep.get(), "Header": self.header.get(), "Fr_col":self.Fr_pos.get(), "Time_col":self.Time_pos.get(),"Ind_col":self.orga_ind.get(),"ID_col":self.ID_pos.get(),"Col_x":self.Col_X.get(), "Col_y":self.Col_Y.get()}#The defaults value for importing data
-
         self.End_of_win()
+
+
+def import_listed(prog, Vid, boss):
+    show_warn=False#The individuals are inside arenas
+    type_data=0#Data are organised in columns
+    names=None#If individuals do have a name attributed
+
+    # We begin by preparing the rows with Frames and Time:
+    Frames = create_Frames(Vid)
+    new_tab = add_Time_from_frames(Frames, Vid)
+
+    #We then prepare the list of individuals
+    Ind_in_arenas = [0 for A in range(len(Vid.Track[1][6]))]
+    Arenas = Dr.get_arenas(Vid)
+
+    boss.unbind_everything()
+
+    if prog=="AnimalTA":
+        file = filedialog.askopenfile()
+        file=file.name
+
+        # load the data file
+        DataFrame = pd.read_csv(file, sep=";", header=0, engine='python', na_filter=True, index_col=None)
+        nb_ind=int((len(DataFrame.columns)-2)/2)
+
+        for ind in range(nb_ind):
+            if len(Vid.Track[1][6]) > 1:
+                X_mean = int(DataFrame.iloc[:,2+2*ind].mean())
+                Y_mean = int(DataFrame.iloc[:,3+2*ind].mean())
+                show_warn_ind, Are = find_ind_ar(Arenas, [X_mean, Y_mean])
+                Ind_in_arenas[Are] += 1
+                if show_warn_ind:
+                    show_warn = True
+            else:
+                Are = 0
+                Ind_in_arenas[0] += 1
+
+            # Rename columns
+            sub_data=DataFrame[["Frame", DataFrame.columns[2 + 2 * ind],DataFrame.columns[3 + 2 * ind]]]
+            sub_data.columns = ["Frame", "X_Arena" + str(Are) + "_Ind" + str(Ind_in_arenas[Are] - 1),
+                                   "Y_Arena" + str(Are) + "_Ind" + str(Ind_in_arenas[Are] - 1)]
+            # We reorganise the table
+            new_tab = pd.merge(new_tab, sub_data, on="Frame", how='left')
+
+        new_tab = orga_table(new_tab)
+        new_tab = new_tab.fillna("NA")
+
+
+
+    elif prog=="ToxTrack":
+        #If you wish to import data from a ToxTrack project, indicate the path for the folder "Project_ToxTrack/My_Video/".
+        #You must have first saved the results of the trackings from ToxTrack (Results > Statistics > Save Results) without applying calibration
+        data_folder = filedialog.askdirectory()
+        all_files=os.listdir(data_folder)
+        all_files=[file for file in all_files if bool(re.search('Tracking_RealSpace_', file))]
+
+        if not (len(all_files))>0:#CTXT
+            question = MsgBox.Messagebox(parent=boss, title="Not possible to import data",
+                                         message="There was no tracking in realspace file found, from ToxTrack, please run the statistic tool",
+                                         Possibilities=["Continue"])
+            boss.wait_window(question)
+            return
+
+        else:
+            Load_show = Class_loading_Frame.Loading(boss, text="Loading file")
+            Load_show.grid()
+
+            Load_show.show_load(0)
+
+            for arena_idx, arena_file in enumerate(all_files):
+                Load_show.show_load(arena_idx/len(all_files))
+
+                arena_df = pd.read_csv(os.path.join(data_folder,arena_file), sep="\t", header=0, engine='python', na_filter = False, index_col=None)
+                arena_df.rename(columns={arena_df.columns[0]: "Frame"}, inplace=True)
+                arena_df["Frame"] = (arena_df["Frame"] * Vid.Frame_rate[1]).round()  # We convert Time to Frame
+
+
+                #Ind ID is saved in a column
+                for ind in arena_df["Track"].unique():
+                    Load_show.show_load(arena_idx / len(all_files)+(ind/(len(arena_df["Track"].unique())))*(1/len(all_files)))
+                    filtered_df = arena_df[arena_df.iloc[:, 2] == ind]
+                    filtered_df.columns = ["Frame", "_", "Ind", "X", "Y", "_1"]
+
+
+                    #If there is more than one arena, we associte the individuals with corresponding arenas
+                    if len(Vid.Track[1][6])>1:
+                        X_mean= int(filtered_df["X"].mean())
+                        Y_mean =int(filtered_df["Y"].mean())
+                        show_warn_ind, Are = find_ind_ar(Arenas, [X_mean,Y_mean])
+                        Ind_in_arenas[Are] += 1
+                        if show_warn_ind:
+                            show_warn = True
+                    else:
+                        Are = 0
+                        Ind_in_arenas[0] += 1
+
+                    filtered_df.columns = ["Frame", "_", "Ind", "X_Arena" + str(Are) + "_Ind" + str(Ind_in_arenas[Are]-1), "Y_Arena" + str(Are) + "_Ind" + str(Ind_in_arenas[Are]-1), "_"]
+                    #We reorganise the table
+                    new_tab=pd.merge(new_tab, filtered_df[["Frame", "X_Arena" + str(Are) + "_Ind" + str(Ind_in_arenas[Are]-1), "Y_Arena" + str(Are) + "_Ind" + str(Ind_in_arenas[Are]-1)]], on="Frame", how='left')
+        new_tab = orga_table(new_tab)
+        new_tab = new_tab.fillna("NA")
+
+    elif prog == "SLEAP":
+        file = filedialog.askopenfile()
+        file=file.name
+
+        # load the data file
+        newWindow = Toplevel(boss)
+        importation_class=Int_import(newWindow, boss, [file], Vid=Vid, physical=False, new=False)
+
+        importation_class.sep.set(",")
+        importation_class.header.set(2)
+        importation_class.Fr_pos.set("2")
+        importation_class.orga_ind.set(1)
+        importation_class.ID_pos.set("track")
+
+        importation_class.load_files(importation_class.files,show=False)
+        nb_ind = int((len(importation_class.or_data.columns) - 3) / 3)
+
+        importation_class.Col_X.set(str(list(range(4,(((nb_ind+1)*3))+1,3))))
+        importation_class.Col_Y.set(str(list(range(5, ((nb_ind+1) * 3) + 2, 3))))
+        show_warn=importation_class.create_new()
+        new_tab=importation_class.trans_data.copy()
+        Ind_in_arenas=importation_class.Ind_in_arenas.copy()
+        importation_class.End_of_win(bind=False)
+        type_data=1
+
+    elif prog == "Loopy":
+        file = filedialog.askopenfile()
+        file=file.name
+
+        # load the data file
+        newWindow = Toplevel(boss)
+        importation_class=Int_import(newWindow, boss, [file], Vid=Vid, physical=False, new=False)
+
+        importation_class.sep.set(",")
+        importation_class.header.set(2)
+        importation_class.Fr_pos.set("5")
+        importation_class.orga_ind.set(1)
+        importation_class.ID_pos.set("name")
+        importation_class.load_files(importation_class.files,show=False)
+        importation_class.Col_X.set("10")
+        importation_class.Col_Y.set("11")
+        show_warn=importation_class.create_new()
+        new_tab=importation_class.trans_data.copy()
+        Ind_in_arenas=importation_class.Ind_in_arenas.copy()
+        importation_class.End_of_win(bind=False)
+        type_data=1
+
+    elif prog == "DeepLabCut":
+        file = filedialog.askopenfile()
+        file=file.name
+        names=[[] for A in range(len(Vid.Track[1][6]))]
+
+        Frames = create_Frames(Vid)
+        new_tab = add_Time_from_frames(Frames, Vid)
+
+        Load_show=Class_loading_Frame.Loading(boss)
+        Load_show.grid()
+
+        Load_show.loading_state.config(text="Loading file")#CTXT
+
+        DataFrame = None
+        def _load_hdf():
+            nonlocal DataFrame
+            DataFrame = pd.read_hdf(file)
+
+        load_th = threading.Thread(
+            target=_load_hdf,
+            daemon=True
+        )
+        load_th.start()
+        Load_show.show_loading_while(load_th)
+
+
+        Load_show.loading_state.config(text="Data conversion") # CTXT
+        Load_show.show_load(0)
+
+        list_col=DataFrame.columns.to_list()
+        all_inds=[[col[1],col[2],col[1]+"_"+col[2]] for col in list_col if col[3]=="x"]
+
+        nb_ind = len(all_inds)
+        columns_to_add = {}
+        for ind in range(nb_ind):
+            Load_show.show_load(ind/nb_ind)
+            df_x = DataFrame.xs('x', axis=1, level='coords')
+            df_x = df_x.xs(all_inds[ind][0], axis=1, level='individuals')
+            df_x = df_x.xs(all_inds[ind][1], axis=1, level='bodyparts').squeeze()
+
+            df_y = DataFrame.xs('y', axis=1, level='coords')
+            df_y = df_y.xs(all_inds[ind][0], axis=1, level='individuals')
+            df_y = df_y.xs(all_inds[ind][1], axis=1, level='bodyparts').squeeze()
+            if len(Vid.Track[1][6]) > 1:
+                X_mean = int(df_x.mean())
+                Y_mean = int(df_y.mean())
+                show_warn_ind, Are = find_ind_ar(Arenas, [X_mean, Y_mean])
+                Ind_in_arenas[Are] += 1
+                names[Are].append(all_inds[ind][2])
+                if show_warn_ind:
+                    show_warn = True
+            else:
+                Are = 0
+                Ind_in_arenas[0] += 1
+                names[Are].append(all_inds[ind][2])
+
+            # We add teh new columns
+            col_name="X_Arena" + str(Are) + "_Ind" + str(Ind_in_arenas[Are] - 1)
+            columns_to_add[col_name] = pd.to_numeric(df_x, errors='coerce').replace(0, "NA").fillna("NA")
+
+            col_name="Y_Arena" + str(Are) + "_Ind" + str(Ind_in_arenas[Are] - 1)
+            columns_to_add[col_name] = pd.to_numeric(df_y, errors='coerce').replace(0, "NA").fillna("NA")
+
+        new_tab = pd.concat([new_tab, pd.DataFrame(columns_to_add)], axis=1)
+        Load_show.destroy()
+        del Load_show
+
+    Load_show=Class_loading_Frame.Loading(boss)
+    Load_show.grid()
+    Load_show.loading_state.config(text="Saving final dataset")#CTXT
+
+    save_th=threading.Thread(
+        target=save_vid,
+        kwargs=dict(
+            type=type_data,
+            new_tab=new_tab,
+            Vid=Vid,
+            new_IDs=Ind_in_arenas,
+            boss=boss,
+            names=names
+        ),
+        daemon=True
+    )
+    save_th.start()
+
+    Load_show.show_loading_while(save_th)
+
+    if show_warn:
+        question = MsgBox.Messagebox(parent=boss, title="Warning",
+                                     message="Warning: A target spent a lot of time outside from the defined arenas, ensure that your arenas are correctly defined.",
+                                     Possibilities=["Continue"])
+        boss.wait_window(question)
+
+    boss.bind_everything()
+    return_to_boss(boss)
+    Load_show.destroy()
+    del Load_show
+
+
+def orga_table(new_tab):
+    first_cols = new_tab.iloc[:, :2]  # The first columns are 'Frame' and 'Time', no need to order them
+
+    # Select the remaining columns and parse/sort them
+    remaining_cols = new_tab.iloc[:, 2:]  # Skip the first column
+    sorted_cols = sorted(remaining_cols.columns, key=parse_column)  # Sort column names
+    remaining_cols = remaining_cols[sorted_cols]  # Reorder DataFrame columns
+
+    # Concatenate the first column and the sorted remaining columns
+    new_tab = pd.concat([first_cols, remaining_cols], axis=1)
+    return new_tab
+
+
+
+def parse_column(col):
+    parts = col.split("_")
+    arena = int(parts[1][5:])  # Extract arena number
+    ind = int(parts[2][3:])    # Extract individual index
+    xy = parts[0]              # Extract 'X' or 'Y'
+    return (arena, ind, xy)
+
+# Sort columns based on (arena, individual, 'X' before 'Y')
+
+
+
+def find_ind_ar(Arenas, Pt):#Find in whci arena is the point
+    all_dists=[]
+    for idx, Are in enumerate(Arenas):
+        distance=cv2.pointPolygonTest(Are,Pt,True)
+        if distance>=0:
+            return (False, idx)#False/True refers to whether the target was detected inside an existing arena (False) or was associated to the closest one (True)
+        else:
+            all_dists.append(distance)
+    return (True, all_dists.index(max(all_dists)))#max because of the target is outside it is negative value
+
+
+def return_to_boss(boss, bind=True):
+    if bind:
+        boss.bind_everything()
+    boss.update()
+    boss.update_selections()
+    boss.update_row_display()
+    boss.afficher_projects()
+    boss.save()
+
+
+def save_vid(type, new_tab,Vid, boss, new_IDs=None, names=None, load_fr=None):
+    Vid.Identities = []
+    Vid.Sequences = []
+
+    if type == 1:
+        Vid.Track[1][8] = False
+        nb_ind  = len(pd.unique(new_tab["Ind"]))
+    else:
+        Vid.Track[1][8] = True
+        nb_ind = int((len(new_tab.columns) - 2) / 2)
+
+    if new_IDs is None:
+        new_IDs = [0 for i in Vid.Track[1][6]]
+        new_IDs[0] = nb_ind
+
+
+    passed = 0
+    for Ar in range(len(new_IDs)):
+        for ind in range(new_IDs[Ar]):
+            if type==0:
+                if names==None:
+                    Vid.Identities.append([Ar, "Ind" + str(ind), Diverse_functions.random_color()[0]])  # 0: identity of target, from 0 to N, 1: in which arene, 2:Name of the target, 3:Color of the target
+                else:
+                    Vid.Identities.append([Ar, names[Ar][ind], Diverse_functions.random_color()[0]])  # 0: identity of target, from 0 to N, 1: in which arene, 2:Name of the target, 3:Color of the target
+
+            else:
+                Vid.Identities.append([new_tab.loc[new_tab["Ind"] == pd.unique(new_tab["Ind"])[passed], "Arena"].iloc[0], pd.unique(new_tab["Ind"])[passed], Diverse_functions.random_color()[0]])  # 0: identity of target, from 0 to N, 1: in which arene, 2:Name of the target, 3:Color of the target
+
+            passed += 1
+            Vid.Sequences.append([Interface_sequences.full_sequence])
+
+
+    Vid.Track[1][6]=new_IDs
+
+    if Vid.User_Name == Vid.Name:
+        file_name = Vid.Name
+        point_pos = file_name.rfind(".")
+        if file_name[point_pos:].lower() != ".avi":
+            file_name = Vid.User_Name
+        else:
+            file_name = file_name[:point_pos]
+    else:
+        file_name = Vid.User_Name
+
+    if not os.path.isdir(os.path.join(boss.folder, "coordinates")):
+        os.makedirs(os.path.join(boss.folder, "coordinates"))
+
+    To_save = os.path.join(boss.folder, "Coordinates", file_name + "_Coordinates.csv")
+    new_tab.to_csv(To_save, sep=";", index=False)
+
+    Vid.Tracked = True
+    Vid.saved_repartition = copy.deepcopy(Vid.Track[1][6])
+    Vid.Identities_saved = copy.deepcopy(Vid.Identities)
+    Vid.Sequences_saved = copy.deepcopy(Vid.Sequences)
+
+
+def create_Frames(Vid):
+    one_every = Vid.Frame_rate[0] / Vid.Frame_rate[1]
+    return pd.DataFrame(range(round(Vid.Cropped[1][0]/one_every), round(Vid.Cropped[1][1]/one_every)+1))
+
+
+def add_Time_from_frames(new_tab, Vid):
+    new_tab.columns = ["Frame"]
+    new_tab["Time"] = new_tab["Frame"].copy()
+    new_tab["Time"] = pd.to_numeric(new_tab["Time"])
+    new_tab["Time"] = new_tab["Time"].div(Vid.Frame_rate[1])
+    new_tab["Frame"] = new_tab.Frame.astype(float)
+    new_tab["Frame"] = new_tab["Frame"].round()
+    new_tab["Frame"] = new_tab.Frame.astype(int)
+
+    return(new_tab)
+
+
+def add_missing_rows(df, Vid):
+    missing_rows = sorted(set(range(df.Frame.iat[0], df.Frame.iat[-1])) - set(df["Frame"]))
+    missing_rows = pd.DataFrame(missing_rows, columns=["Frame"])
+
+    missing_rows["Time"] = missing_rows["Frame"].copy()
+    missing_rows["Time"] = pd.to_numeric(missing_rows["Time"])
+    missing_rows["Time"] = missing_rows["Time"].div(Vid.Frame_rate[1])
+
+    for col in df.columns:
+        if col != "Time" and col != "Frame":
+            missing_rows[col] = "NA"
+
+    new_tab = pd.concat([df, missing_rows])
+    new_tab = new_tab.sort_values(["Frame"])
+
+    return(new_tab)
+
 

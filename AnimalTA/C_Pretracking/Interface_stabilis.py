@@ -90,6 +90,10 @@ class Stabilise(Frame):
         self.tool_size.set(20)
         Scale_Tool=Scale(self.canvas_validate, label=self.Messages["Stab14"], variable=self.tool_size, from_=0, to=500, orient=HORIZONTAL, **Color_settings.My_colors.Scale_Base)
         Scale_Tool.grid(row=5,column=0, sticky="new")
+        Scale_Tool.bind("<Enter>", partial(self.HW.change_tmp_message, "Change the diameter of the tool used to remove points."))#CTXT
+        Scale_Tool.bind("<Leave>", self.HW.remove_tmp_message)
+
+
 
         self.B_Validate=Button(self.canvas_validate, text=self.Messages["Validate"], command=self.End_of_window, **Color_settings.My_colors.Button_Base)
         self.B_Validate.config(background=Color_settings.My_colors.list_colors["Validate"],fg=Color_settings.My_colors.list_colors["Fg_Validate"])
@@ -115,7 +119,10 @@ class Stabilise(Frame):
 
         self.Vid_Lecteur.canvas_video.bind("<MouseWheel>", self.on_mousewheel)
 
-
+    def change_glob(self):
+        self.Vid_Lecteur.first=True
+        self.Vid_Lecteur.update_image(self.Scrollbar.active_pos)
+        self.modif_image()
 
     def on_mousewheel(self, event):
         #Change the size of the tool
@@ -147,7 +154,6 @@ class Stabilise(Frame):
 
     def End_of_window(self, follow=False):
         self.Vid.Stab[1] = self.prev_points
-
         if follow and self.Vid != self.main_frame.liste_of_videos[-1]:
             for i in range(len(self.main_frame.liste_of_videos)):
                 if self.main_frame.liste_of_videos[i]==self.Vid:
@@ -163,6 +169,7 @@ class Stabilise(Frame):
             self.HW.grid_forget()
             self.HW.destroy()
             self.main_frame.return_main()
+            self.boss.select_vid()
 
         self.Vid_Lecteur.canvas_video.unbind_all("<MouseWheel>")
 

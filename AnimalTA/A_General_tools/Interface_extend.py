@@ -2,7 +2,7 @@ from tkinter import *
 from tkinter import ttk
 from tkinter import filedialog
 import os
-from AnimalTA.A_General_tools import Function_draw_mask, UserMessages, Class_stabilise, Color_settings, Class_loading_Frame, Message_simple_question as MsgBox, Interface_Save_Vids
+from AnimalTA.A_General_tools import Function_draw_arenas, UserMessages, Class_stabilise, Color_settings, Class_loading_Frame, Message_simple_question as MsgBox, Interface_Save_Vids
 import cv2
 from copy import deepcopy
 
@@ -41,8 +41,9 @@ class Extend(Frame):
         self.Messages = UserMessages.Mess[self.Language.get()]
         self.winfo_toplevel().title(self.Messages["ExtendT"])
 
+        #CTXT (add self.Messages[type])         Label(self,text=self.Messages["Extend1"] + " " + self.Messages[type], wraplength=500, **Color_settings.My_colors.Label_Base).grid(row=0, columnspan=2, sticky="nsew")
 
-        Label(self,text=self.Messages["Extend1"] + " " + self.Messages[type], wraplength=500, **Color_settings.My_colors.Label_Base).grid(row=0, columnspan=2, sticky="nsew")
+        Label(self,text=self.Messages["Extend1"] + " " + str(type), wraplength=500, **Color_settings.My_colors.Label_Base).grid(row=0, columnspan=2, sticky="nsew")
 
         #This button allows to directly select/unselect all the videos from the list
         self.sel_state=StringVar()
@@ -83,6 +84,11 @@ class Extend(Frame):
 
         #We add all the videos
         self.list_vid_minus=[]
+
+        #All the cases for which we only propose tracked videos and for which we don't make the tracked videos appear red
+        self.list_analyses = ["analyses_segments", "analyses_morpho", "analyses_details", "analyses_sm", "analyses_smooth", "analyses_explored",
+                         "analyses_thresh", "analyses_explo", "analyses_inter", "analyses_deform", "IDs","export"]
+
         for i in range(len(self.list_vid)):
             if self.list_vid[i]!=self.Vid or self.do_self:
                 if type == "supr" or type=="export":
@@ -91,9 +97,6 @@ class Extend(Frame):
                     if self.list_vid[i].Tracked:
                         self.Liste.itemconfig(self.Liste.size() - 1, {'fg': Color_settings.My_colors.list_colors["Fg_not_valide"]})
 
-                elif type=="IDs" and self.list_vid[i].Track[1][6] == self.Vid.Track[1][6] and self.list_vid[i].Tracked:
-                    self.list_vid_minus.append(self.list_vid[i])
-                    self.Liste.insert(i, self.list_vid[i].User_Name)
                 elif type=="back_copy" and self.list_vid[i].shape == self.Vid.shape:
                     self.list_vid_minus.append(self.list_vid[i])
                     self.Liste.insert(i, self.list_vid[i].User_Name)
@@ -101,13 +104,18 @@ class Extend(Frame):
                         self.Liste.itemconfig(self.Liste.size() - 1, {'fg': Color_settings.My_colors.list_colors["Fg_not_valide"]})
 
                 #The untracked videos will not be displayed if we want to share analyses parameters
-                elif not (type=="analyses_smooth" or type=="analyses_thresh" or type=="analyses_explo" or type=="analyses_inter" or type=="analyses_deform") or (self.list_vid[i].Tracked):
-                    self.list_vid_minus.append(self.list_vid[i])
-                    self.Liste.insert(i, self.list_vid[i].User_Name)
-                    if self.list_vid[i].Tracked and not (type=="analyses_smooth" or type=="analyses_thresh" or type=="analyses_explo" or type=="analyses_inter" or type=="analyses_deform"):
-                        self.Liste.itemconfig(self.Liste.size()-1, {'fg': Color_settings.My_colors.list_colors["Fg_not_valide"]})
-                        #The tracked videos will appear in red if they were already tracked (except for changes in analyses parameters).
-                        #Indeed, changing a parameter of these videos will remove the trackings.
+                elif not (type in self.list_analyses) or (self.list_vid[i].Tracked):
+                    if type == "IDs" and len(self.list_vid[i].Identities) == len(self.Vid.Identities) and self.list_vid[i].Tracked:
+                        self.list_vid_minus.append(self.list_vid[i])
+                        self.Liste.insert(i, self.list_vid[i].User_Name)
+
+                    elif type!="IDs":
+                        self.list_vid_minus.append(self.list_vid[i])
+                        self.Liste.insert(i, self.list_vid[i].User_Name)
+                        if self.list_vid[i].Tracked and not (type in self.list_analyses):
+                            self.Liste.itemconfig(self.Liste.size()-1, {'fg': Color_settings.My_colors.list_colors["Fg_not_valide"]})
+                            #The tracked videos will appear in red if they were already tracked (except for changes in analyses parameters).
+                            #Indeed, changing a parameter of these videos will remove the trackings.
 
 
         self.Liste.grid(row=2,column=0, sticky="nsew")
@@ -150,7 +158,7 @@ class Extend(Frame):
         for V in list_item:
             #If the tracking parameters were changed we remove the existing trackings
             cleared=True
-            if self.list_vid_minus[V].Tracked and self.type!="analyses_smooth" and self.type!="analyses_thresh" and self.type!="analyses_explo" and self.type!="analyses_inter" and self.type!="analyses_deform" and self.type!="IDs" and self.type!="export":
+            if self.list_vid_minus[V].Tracked and not self.type in self.list_analyses:
                 cleared=self.list_vid_minus[V].clear_files()
                 self.list_vid_minus[V].Tracked = False
             if cleared:
@@ -160,8 +168,7 @@ class Extend(Frame):
                 elif self.type == "mask":
                     self.list_vid_minus[V].Mask[0] = 1
                     self.list_vid_minus[V].Mask[1] = deepcopy(self.value)
-                    mask = Function_draw_mask.draw_mask(self.list_vid_minus[V])
-                    Arenas, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    Arenas = Function_draw_arenas.get_arenas(self.list_vid_minus[V])
                     nb_ar = len(Arenas)
                     nb_ar = max([1,nb_ar])
                     if len(self.list_vid_minus[V].Track[1][6])<nb_ar:#If the number of arenas in the video to copy does not match the number of arenas in the receiving video
@@ -169,16 +176,16 @@ class Extend(Frame):
                     elif len(self.list_vid_minus[V].Track[1][6])>nb_ar:
                         self.list_vid_minus[V].Track[1][6] = self.list_vid_minus[V].Track[1][6][0:nb_ar]
                 elif self.type == "track":
-                    self.list_vid_minus[V].Track[0] = 1
-                    mask = Function_draw_mask.draw_mask(self.list_vid_minus[V])
-                    Arenas, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    Arenas = Function_draw_arenas.get_arenas(self.list_vid_minus[V])
                     nb_ar = len(Arenas)
                     nb_ar = max([1,nb_ar])
                     self.list_vid_minus[V].Track[1] = deepcopy(self.value[0])
                     self.list_vid_minus[V].Track[1][6] = deepcopy(self.value[0])[6][0:nb_ar]
 
-                    if self.list_vid_minus[V].Back[0]!=1:
+                    if self.value[1]!=1:
                         self.list_vid_minus[V].Back[0]=deepcopy(self.value[1])
+                        self.list_vid_minus[V].Back[1]=[]
+
 
                     if len(self.list_vid_minus[V].Track[1][6])<nb_ar:#If the number of arenas from the video to copy does not fit the real number of arenas, we add some
                         self.list_vid_minus[V].Track[1][6]=self.list_vid_minus[V].Track[1][6] + ([self.list_vid_minus[V].Track[1][6][0]] * (nb_ar-len(self.list_vid_minus[V].Track[1][6])))
@@ -203,14 +210,19 @@ class Extend(Frame):
                     self.list_vid_minus[V].Stab[0] = self.value[0]
                     self.list_vid_minus[V].Stab[2] = self.value[2].copy()
 
-                    Which_part = [index for index, Fu_inf in enumerate(self.list_vid_minus[V].Fusion) if Fu_inf[0] <= self.list_vid_minus[V].Cropped[1][0]][-1]
-                    Capture = cv2.VideoCapture(self.list_vid_minus[V].Fusion[Which_part][1])
+                    Which_part = [index for index, Fu_inf in enumerate(self.list_vid_minus[V].Fusion) if  Fu_inf[0] <= self.list_vid_minus[V].Cropped[1][0]][-1]
+                    if self.list_vid_minus[V].type=="Video":
+                        Capture = cv2.VideoCapture(self.list_vid_minus[V].Fusion[Which_part][1])
+                        Capture.set(cv2.CAP_PROP_POS_FRAMES, round(self.list_vid_minus[V].Cropped[1][0] - self.list_vid_minus[V].Fusion[Which_part][0]))
+                        _, Prem_im=Capture.read()
+                        Capture.release()
+                    else:
+                        Prem_im=cv2.imread(os.path.join(self.list_vid_minus[V].Fusion[Which_part][1], self.list_vid_minus[V].img_list[self.list_vid_minus[V].Cropped[1][0] - self.list_vid_minus[V].Fusion[Which_part][0]]))
 
-                    Capture.set(cv2.CAP_PROP_POS_FRAMES, round(self.list_vid_minus[V].Cropped[1][0] - self.list_vid_minus[V].Fusion[Which_part][0]))
-                    _, Prem_im=Capture.read()
+
                     if self.list_vid_minus[V].Cropped_sp[0]:
                         Prem_im = Prem_im[self.list_vid_minus[V].Cropped_sp[1][0]:self.list_vid_minus[V].Cropped_sp[1][2],self.list_vid_minus[V].Cropped_sp[1][1]:self.list_vid_minus[V].Cropped_sp[1][3]]
-                    Capture.release()
+
                     self.list_vid_minus[V].Stab[1] = Class_stabilise.find_pts(self.list_vid_minus[V], Prem_im,
                                                                 minDistance=self.list_vid_minus[V].Stab[2][0], blockSize=self.list_vid_minus[V].Stab[2][1],
                                                                 quality=self.list_vid_minus[V].Stab[2][2], maxCorners=self.list_vid_minus[V].Stab[2][3])
@@ -329,6 +341,20 @@ class Extend(Frame):
                         newWindow = Toplevel(self.parent)
                         Tmp_expo_widg=Interface_Save_Vids.Lecteur(parent=newWindow,main_frame=self,boss=newWindow, Vid=self.list_vid_minus[V], Video_liste=self.list_vid, params_export=self.value, auto=True)
 
+                elif self.type=="analyses_morpho":
+                    self.list_vid_minus[V].Morphometrics = self.value
+
+                elif self.type=="analyses_segments":
+                    self.list_vid_minus[V].More_ana_Crosses = self.value
+
+                elif self.type=="analyses_details":
+                    self.list_vid_minus[V].Details_options = self.value
+
+                elif self.type=="analyses_sm":
+                    self.list_vid_minus[V].Stops_Moves_options = self.value
+
+                elif self.type=="analyses_explored":
+                    self.list_vid_minus[V].Explored_complex = self.value
 
 
             item+=1
@@ -356,9 +382,6 @@ class Extend(Frame):
             question = MsgBox.Messagebox(parent=self, title=self.Messages["Extend_TError"],
                                        message=Message, Possibilities=[self.Messages["Continue"]])
             self.wait_window(question)
-
-
-
         self.End_of_window()
 
     def End_of_window(self):

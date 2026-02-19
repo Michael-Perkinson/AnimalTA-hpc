@@ -72,7 +72,6 @@ def find_best_position(Vid, Prem_Im, frame, show, scale=1, prev_pts=None):
 
     if len(prev_pts)>1:#If there are emought points to stabilise, we apply the stabilisation
         choose_pts=prev_pts.copy()
-
         curr_pts, status, err = cv2.calcOpticalFlowPyrLK(prev_gray, curr_gray, prev_pts, None)#Calculate optical flow
 
         assert choose_pts.shape == curr_pts.shape

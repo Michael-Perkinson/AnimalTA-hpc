@@ -1,3 +1,8 @@
+import sys
+if getattr(sys, 'frozen', False):
+    import pyi_splash
+
+
 from tkinter import *
 import os
 from AnimalTA.A_General_tools import UserMessages, Diverse_functions, Color_settings
@@ -9,16 +14,23 @@ import urllib.request
 import pickle
 from ctypes import windll
 import threading
-import sys
 import tempfile
 import shutil
+
+
+# Close the splash screen. It does not matter when the call
+# to this function is made, the splash screen remains open until
+# this function is called or the Python program is terminated.
+if getattr(sys, 'frozen', False):
+    pyi_splash.close()
+
+
 
 # pyinstaller cli.py --noconsole
 class Mainframe(Tk):
     #Launch the rest of animalTA
     def __init__(self):
         Tk.__init__(self)
-
         if len(sys.argv) > 1:
             file_path = sys.argv[1]
             # Your logic to handle the file here
@@ -27,6 +39,7 @@ class Mainframe(Tk):
 
         #Change here the last version
         current_version="v3.2.2"
+
 
         #We check the parameters
         Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
@@ -84,6 +97,12 @@ class Mainframe(Tk):
             if "Auto_update" not in Params.keys():
                 Params["Auto_update"] = False
                 modifications = True
+
+            if "Video_Chunks" not in Params.keys():
+                Params["Video_Chunks"] = True
+                modifications = True
+
+
 
 
             if modifications:
@@ -155,6 +174,7 @@ class Mainframe(Tk):
             print(e)
             new_update = None
 
+
         self.open_AnimalTA(current_version, new_update, file_path)
 
     def do_update(self):
@@ -199,82 +219,86 @@ def set_appwindow(root):
     root.after(10, lambda: root.wm_deiconify())
 
 
-root=Mainframe()
-style = ttk.Style()
-style.theme_use('clam')
 
-#We create the styles:
-style.map(
-    "Horizontal.TScrollbar",
-    background=[('active', Color_settings.My_colors.list_colors["Base"]), ('!active', Color_settings.My_colors.list_colors["Base"])],
-    troughcolor=[('active', Color_settings.My_colors.list_colors["Glider_Base"]), ('!active', Color_settings.My_colors.list_colors["Glider_Base"])],
-)
+def start_mainframe():
+    root=Mainframe()
+    style = ttk.Style()
+    style.theme_use('clam')
 
-
-style.configure(
-    "Horizontal.TScrollbar",
-    arrowsize=15,
-    arrowcolor=Color_settings.My_colors.list_colors["Arrow_N_Relief_scroll"],
-    bordercolor=Color_settings.My_colors.list_colors["Arrow_N_Relief_scroll"],
-    gripcount=0,
-    relief="flat",
-    padding=0
-)
-
-style.map(
-    "Vertical.TScrollbar",
-    background=[('active', Color_settings.My_colors.list_colors["Base"]), ('!active', Color_settings.My_colors.list_colors["Base"])],
-    troughcolor=[('active', Color_settings.My_colors.list_colors["Glider_Base"]), ('!active', Color_settings.My_colors.list_colors["Glider_Base"])],
-)
-
-style.configure(
-    "Vertical.TScrollbar",
-    arrowsize=15,
-    arrowcolor=Color_settings.My_colors.list_colors["Arrow_N_Relief_scroll"],
-    borderwidth=0,  # Set border width to 0 to remove the default border
-    highlightthickness=0,  # Remove highlight
-    gripcount=0,
-    relief="flat",  # Ensure relief is flat to remove any 3D effects
-    padding=0,
-    background=Color_settings.My_colors.list_colors["Base"],  # Set the background color
-    troughcolor=Color_settings.My_colors.list_colors["Glider_Base"]  # Set the trough color
-)
-
-def fixed_map(option):
-    # Fix for setting text colour for Tkinter 8.6.9
-    # From: https://core.tcl.tk/tk/info/509cafafae
-    #
-    # Returns the style map for 'option' with any styles starting with
-    # ('!disabled', '!selected', ...) filtered out.
-
-    # style.map() returns an empty list for missing options, so this
-    # should be future-safe.
-    return [elm for elm in style.map('Treeview', query_opt=option) if
-            elm[:2] != ('!disabled', '!selected')]
+    #We create the styles:
+    style.map(
+        "Horizontal.TScrollbar",
+        background=[('active', Color_settings.My_colors.list_colors["Base"]), ('!active', Color_settings.My_colors.list_colors["Base"])],
+        troughcolor=[('active', Color_settings.My_colors.list_colors["Glider_Base"]), ('!active', Color_settings.My_colors.list_colors["Glider_Base"])],
+    )
 
 
-style.map('Treeview', foreground=fixed_map('foreground'), background=fixed_map('background'))
-style.configure("Treeview", background=Color_settings.My_colors.list_colors["Table1"],
-                fieldbackground=Color_settings.My_colors.list_colors["Table1"],
-                foreground=Color_settings.My_colors.list_colors["Fg_T1"])
-style.configure("Treeview.Heading", background=Color_settings.My_colors.list_colors["Header_check"],
-                foreground=Color_settings.My_colors.list_colors["Fg_Header_check"])
+    style.configure(
+        "Horizontal.TScrollbar",
+        arrowsize=15,
+        arrowcolor=Color_settings.My_colors.list_colors["Arrow_N_Relief_scroll"],
+        bordercolor=Color_settings.My_colors.list_colors["Arrow_N_Relief_scroll"],
+        gripcount=0,
+        relief="flat",
+        padding=0
+    )
 
-style.map("Treeview.Heading",
-          background=[("active", Color_settings.My_colors.list_colors["Header_check"])],
-          foreground=[("active", Color_settings.My_colors.list_colors["Fg_Header_check"])])
+    style.map(
+        "Vertical.TScrollbar",
+        background=[('active', Color_settings.My_colors.list_colors["Base"]), ('!active', Color_settings.My_colors.list_colors["Base"])],
+        troughcolor=[('active', Color_settings.My_colors.list_colors["Glider_Base"]), ('!active', Color_settings.My_colors.list_colors["Glider_Base"])],
+    )
 
-style.map("Treeview",
-          background=[("selected", Color_settings.My_colors.list_colors["Selected_row_check"])],
-          foreground=[("selected", Color_settings.My_colors.list_colors["Fg_Selected_row_check"])])
+    style.configure(
+        "Vertical.TScrollbar",
+        arrowsize=15,
+        arrowcolor=Color_settings.My_colors.list_colors["Arrow_N_Relief_scroll"],
+        borderwidth=0,  # Set border width to 0 to remove the default border
+        highlightthickness=0,  # Remove highlight
+        gripcount=0,
+        relief="flat",  # Ensure relief is flat to remove any 3D effects
+        padding=0,
+        background=Color_settings.My_colors.list_colors["Base"],  # Set the background color
+        troughcolor=Color_settings.My_colors.list_colors["Glider_Base"]  # Set the trough color
+    )
+
+    def fixed_map(option):
+        # Fix for setting text colour for Tkinter 8.6.9
+        # From: https://core.tcl.tk/tk/info/509cafafae
+        #
+        # Returns the style map for 'option' with any styles starting with
+        # ('!disabled', '!selected', ...) filtered out.
+
+        # style.map() returns an empty list for missing options, so this
+        # should be future-safe.
+        return [elm for elm in style.map('Treeview', query_opt=option) if
+                elm[:2] != ('!disabled', '!selected')]
 
 
-root.overrideredirect(1)
-root.geometry("1250x720")
-root.geometry("+100+100")
-root.after(10, lambda: set_appwindow(root))
-root.iconbitmap(UserMessages.resource_path(os.path.join("AnimalTA","Files","Logo.ico")))
+    style.map('Treeview', foreground=fixed_map('foreground'), background=fixed_map('background'))
+    style.configure("Treeview", background=Color_settings.My_colors.list_colors["Table1"],
+                    fieldbackground=Color_settings.My_colors.list_colors["Table1"],
+                    foreground=Color_settings.My_colors.list_colors["Fg_T1"])
+    style.configure("Treeview.Heading", background=Color_settings.My_colors.list_colors["Header_check"],
+                    foreground=Color_settings.My_colors.list_colors["Fg_Header_check"])
 
-Grid.rowconfigure(root,0,weight=1)
-Grid.columnconfigure(root,0,weight=1)
-root.mainloop()
+    style.map("Treeview.Heading",
+              background=[("active", Color_settings.My_colors.list_colors["Header_check"])],
+              foreground=[("active", Color_settings.My_colors.list_colors["Fg_Header_check"])])
+
+    style.map("Treeview",
+              background=[("selected", Color_settings.My_colors.list_colors["Selected_row_check"])],
+              foreground=[("selected", Color_settings.My_colors.list_colors["Fg_Selected_row_check"])])
+
+
+    root.overrideredirect(1)
+    root.geometry("1250x720")
+    root.geometry("+100+100")
+    root.after(10, lambda: set_appwindow(root))
+    root.iconbitmap(UserMessages.resource_path(os.path.join("AnimalTA","Files","Logo.ico")))
+
+    Grid.rowconfigure(root,0,weight=1)
+    Grid.columnconfigure(root,0,weight=1)
+    root.mainloop()
+
+

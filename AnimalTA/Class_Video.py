@@ -1,10 +1,12 @@
 import numpy as np
 import ntpath
-from AnimalTA.A_General_tools import UserMessages, Class_stabilise, Function_draw_mask as Dr, Message_simple_question as MsgBox
+from django.db.models.functions import Repeat
+from AnimalTA.A_General_tools import UserMessages, Class_stabilise, Function_draw_arenas as Dr, Message_simple_question as MsgBox, Diverse_functions
 import os
 import cv2
 import pickle
-
+from tkinter import Toplevel
+from AnimalTA.E_Post_tracking.b_Analyses import Interface_sequences
 
 # Import language
 f = open(UserMessages.resource_path(os.path.join("AnimalTA","Files","Language")), "r", encoding="utf-8")
@@ -16,13 +18,18 @@ class Video:
     '''
     This class is used to save the information about the videos.
     '''
-    def __init__(self, File_name, Folder, shape=None, nb_fr=None, fr_rate=None):
+    def __init__(self, File_name, Folder, shape=None, nb_fr=None, fr_rate=None, User_Name=None, type="Video", img_list=None):
+        self.type=type#If it is a video or a sequence of images
+        self.img_list=img_list#The list of all the frames if it is an image list
         self.File_name=File_name #The name and path to the video file
         self.Folder=Folder #The folder in which the project is stored
         self.Name = ntpath.basename(self.File_name)#The name of the video
-        self.User_Name=self.Name
+        if User_Name is None:
+            self.User_Name=self.Name
+        else:
+            self.User_Name=User_Name
 
-        if shape==None:#If we did not furnish the file data (i.e. if the video was converted)
+        if shape==None and type=="Video":#If we did not furnish the file data (i.e. if the video was converted)
             capture=cv2.VideoCapture(self.File_name)#We choose to use Opencv and not decord here because opencv is much faster at initiation. But, opencv is not calculating correcty the number of frames in videos, also this value is recalculated later.
             shape=(int(capture.get(4)),int(capture.get(3)))#The width/height of the frames
             nb_fr = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -50,12 +57,28 @@ class Video:
         self.Tracked=False #Whether the video has already been tracked or not
         self.Events=[]
 
-        self.Track=[False,[50,0,0,[0.0001,5000],[0,1],500,[1], False, False, False, [0,0,0]]]
-        #0 Tresh , 1 Erosion ,2 Dilation ,3 Area ,4 Compact ,5 Distance (px), 6 number of targets, 7 Apply light correction, 8 Is fixed number of targets, 9 flickering correction, 10 kind of background subtraction [0 = greyscaled, 1=colored)][0=mean, 1=darker, 2=lighter][0=absoltue, 1=relative].
+        self.Track=[False,[50,0,0,[0.0001,5000],[0,1],500,[1], False, False, False, [0,0,0,30], 5]]
+        #0 Tresh , 1 Erosion ,2 Dilation ,3 Area ,4 Compact ,5 Distance (px), 6 number of targets,
+        # 7 Apply light correction, 8 Is fixed number of targets, 9 flickering correction,
+        # 10 kind of background subtraction 0:[0 = greyscaled, 1=colored)]1:[0=mean, 1=darker, 2=lighter]2:[0=absoltue, 1=relative]3:window for dynamical (in sec).
+        # 11 C value for adaptive threshold
         self.Smoothed=[0,0]
         self.Analyses=[0,[[] for n in self.Track[1][6]],[0,1,2],0,[[],[],[]]]#0 = seuil de mouvement, 1=list of elements of interest (one [] per arena at the implementation), 2=style d'exploration(2.0 = type, 2.1=surface, 2.2=parametres pour cercles, 3=dist_nei, 4=Correction of deformation: 4.0= deformation matrix, 4.1=points in ref image, 4.2=points position after correction)
 
         self.Color_profiles="default.CPR"
+
+        #We prepare a default details opptions:
+        Diverse_functions.prepare_details(self)
+        Diverse_functions.prepare_stops_moves_option(self)
+        self.More_ana_Crosses=False
+        self.Morphometrics=False
+        self.Explored_complex=False
+
+        #Indicator of whether the 3D option is activated or not. If None, no 3D, else indicate which other video is associated.
+        self.comb_V_3D=None
+
+
+
 
     def check_coos(self):
         if self.User_Name == self.Name:
@@ -74,18 +97,58 @@ class Video:
         prev_track=self.Tracked
 
 
-        if os.path.isfile(file_tracked_not_corr) or os.path.isfile(file_tracked_corr):
-            self.Tracked = True
-        else:
+        if not(os.path.isfile(file_tracked_not_corr) or os.path.isfile(file_tracked_corr)):
             self.Tracked = False
 
 
         return([prev_track and not self.Tracked, file_tracked_not_corr,file_tracked_corr])
 
+    def rename(self, new_name):
+        if self.User_Name == self.Name:
+            file_name = self.Name
+            point_pos = file_name.rfind(".")
+            if file_name[point_pos:].lower() != ".avi":
+                file_name = self.User_Name
+            else:
+                file_name = file_name[:point_pos]
+        else:
+            file_name = self.User_Name
+
+
+        # Change_coordinates names
+        while True:
+            try:
+                files_coos = os.path.join(self.Folder, "coordinates", file_name + "_Coordinates.csv")
+                files_coos_corr = os.path.join(self.Folder, "corrected_coordinates", file_name + "_Corrected.csv")
+
+                if os.path.isfile(files_coos):#We first ensure that both files can be modified before doing the modification
+                    os.rename(files_coos, files_coos)
+                if os.path.isfile(files_coos_corr):
+                    os.rename(files_coos_corr,files_coos_corr)
+
+                if os.path.isfile(files_coos):
+                    os.rename(files_coos, os.path.join(self.Folder, "coordinates", new_name + "_Coordinates.csv"))
+                if os.path.isfile(files_coos_corr):
+                    os.rename(files_coos_corr, os.path.join(self.Folder, "corrected_coordinates", new_name + "_Corrected.csv"))
+
+                return True
+
+            except PermissionError as e:
+                window = Toplevel()
+                question = MsgBox.Messagebox(parent=window, title=Messages["TError"],
+                                             message=Messages["Error_Permission"].format(e.filename),
+                                             Possibilities=[Messages["Retry"], Messages["Cancel"]])
+                window.wait_window(question)
+                answer = question.result
+                window.destroy()
+                if answer != 0:
+                    return False
+
+
+
 
     def clear_files(self):
         '''If we need to remove the tracking that were done (i.e. if the user want to change tracking parameters while the tracking has already be done)'''
-
         if self.User_Name == self.Name:
             file_name = self.Name
             point_pos = file_name.rfind(".")
@@ -105,7 +168,7 @@ class Video:
 
         while True:
             try:
-                for file in files_tracked:
+                for file in files_tracked:#We first ensure that both files can be modified before doing the modification
                     if os.path.isfile(file):
                         os.rename(file,file)
                     if os.path.isfile(file):
@@ -124,21 +187,21 @@ class Video:
                 return True
 
             except PermissionError as e:
-                question = MsgBox.Messagebox(parent=self, title=Messages["TError"],
+                window = Toplevel()
+                question = MsgBox.Messagebox(parent=window, title=Messages["TError"],
                                              message=Messages["Error_Permission"].format(e.filename), Possibilities=[Messages["Retry"], Messages["Cancel"]])
-                self.wait_window(question)
+                window.wait_window(question)
                 answer = question.result
+                window.destroy()
                 if answer!=0:
                     return False
 
 
 
-    def make_back(self,  Nb_Back=10):
-
+    def make_back(self,  Nb_Back=10, ref_frame=None):
         '''This function is used to create a background in which the moving targets are erased.
         It works by calculating the median value of all the pixels for N=Nb_Back images taken at regular intervals.
         '''
-
         Liste_Images=[]
         i = 0
         #intervals=how much space between two frame we will use
@@ -147,25 +210,32 @@ class Video:
                 intervals=round((self.Cropped[1][1]-self.Cropped[1][0]) / Nb_Back)
             else:
                 intervals=1
-            Rank=range(self.Cropped[1][0], self.Cropped[1][1], intervals)
+            Rank=list(range(self.Cropped[1][0], self.Cropped[1][1], intervals))
         else:
             if int(self.Frame_nb[0]/ Nb_Back)>0:
                 intervals=round((self.Cropped[1][1]-self.Cropped[1][0]) / Nb_Back)
             else:
                 intervals=1
-            Rank=range(0, self.Frame_nb[0], intervals)
+            Rank=list(range(0, self.Frame_nb[0], intervals))
 
-        Capture = cv2.VideoCapture(self.Fusion[0][1])
+        if not ref_frame is None:
+            Rank=[ref_frame]+Rank
+
 
         for image_ID in Rank:
-            Which_part=0
+
             if len(self.Fusion) > 1:  # If the video results from concatenation
                 Which_part = [index for index, Fu_inf in enumerate(self.Fusion) if Fu_inf[0] <= image_ID][-1]
-                Capture.release()
-                Capture = cv2.VideoCapture(self.Fusion[Which_part][1])
+            else:
+                Which_part=0
 
-            Capture.set(cv2.CAP_PROP_POS_FRAMES, int(image_ID-self.Fusion[Which_part][0]))
-            _, frame=Capture.read()
+            if self.type == "Video":
+                Capture = cv2.VideoCapture(self.Fusion[Which_part][1])
+                Capture.set(cv2.CAP_PROP_POS_FRAMES, int(image_ID-self.Fusion[Which_part][0]))
+                _, frame=Capture.read()
+            else:
+                frame=cv2.imread(os.path.join(self.Fusion[Which_part][1], self.img_list[image_ID-self.Fusion[Which_part][0]]))
+
 
             if self.Rotation == 1:
                 frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
@@ -183,11 +253,13 @@ class Video:
             if self.Stab[0] and i>0:#If the user choose the stabilization tool
                 frame = Class_stabilise.find_best_position(Vid=self, Prem_Im=Prem_img, frame=frame, show=False)
 
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-            Liste_Images.append(np.copy(frame))
+            if i>0 or ref_frame is None:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                Liste_Images.append(np.copy(frame))
             i += 1
-        Capture.release()
+
+        if self.type=="Video":
+            Capture.release()
 
         Liste_Images[0] = np.median(Liste_Images, axis=0)#We calculate the median value for all pixels
         Liste_Images[0]=Liste_Images[0].astype("uint8")
@@ -197,9 +269,7 @@ class Video:
 
     def draw_entrance(self, distance_max=20):#If no entrance, we propose the external borders of the arena as entrance area.
         self.Entrance=[]
-        mask = Dr.draw_mask(self)
-        Arenas, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        Arenas = Dr.Organise_Ars(Arenas)
+        Arenas = Dr.get_arenas(self)
 
         for Ar in Arenas:
             empty=np.zeros([self.shape[0],self.shape[1],1], np.uint8)
@@ -222,3 +292,19 @@ class Video:
         self.Entrance = []
 
 
+    def extract_repre_img(self):
+        if self.type=="Video":
+            capture = cv2.VideoCapture(self.File_name)  # Faster with opencv
+            _, Represent = capture.read()
+            capture.release()
+        else:
+            Represent=cv2.imread(os.path.join(self.File_name, self.img_list[0]))
+
+        if self.Rotation == 1:
+            Represent = cv2.rotate(Represent, cv2.ROTATE_90_CLOCKWISE)
+        elif self.Rotation == 2:
+            Represent = cv2.rotate(Represent, cv2.ROTATE_180)
+        if self.Rotation == 3:
+            Represent = cv2.rotate(Represent, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+        return Represent

@@ -4,9 +4,9 @@ from tkinter import *
 import cv2
 import PIL.Image, PIL.ImageTk
 from functools import partial
-from AnimalTA.A_General_tools import Function_draw_mask as Dr, Interface_extend, UserMessages, Color_settings, Message_simple_question as MsgBox
+from AnimalTA.A_General_tools import Function_draw_arenas as Dr, Interface_extend, UserMessages, Color_settings, Message_simple_question as MsgBox
 from AnimalTA.C_Pretracking import Interface_cropping, Interface_back, Interface_arenas, Interface_scaling, \
-    Interface_stabilis
+    Interface_stabilis, Interface_scaling_3D
 from AnimalTA.B_Project_organisation import Interface_supp_frame_rate
 from tkinter import font
 from tkinter import filedialog
@@ -18,20 +18,25 @@ class Row_Can(Canvas):
     This class is the Frame that contains one row.
     '''
     def __init__(self, Video_file, main_boss,proj_pos, parent=None, **kw):
-            Frame.__init__(self, parent, kw)
+            super().__init__(parent, **kw)
             self.Video=Video_file
             self.main_frame=main_boss
             self.parent=parent
             self.proj_pos=proj_pos #The position of the row in the table
-            self.config(width=500, height=150,**Color_settings.My_colors.Frame_Base, pady=2, bd=0, highlightthickness=0)
-            self.grid_propagate(0)
-
-            Grid.rowconfigure(self, 0, weight=1)
-
+            self.config(width=500, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
             self.list_colors = Color_settings.My_colors.list_colors
 
             Grid.columnconfigure(self, 0, weight=1)
-            Grid.columnconfigure(self, 1, weight=100)
+            Grid.rowconfigure(self, 0, weight=1)
+
+            self.Inner_Frame=Frame(self, **Color_settings.My_colors.Frame_Base)
+            self.Inner_Frame.grid(sticky="sew")
+
+
+            Grid.rowconfigure(self.Inner_Frame, 0)
+
+            Grid.columnconfigure(self.Inner_Frame, 0, weight=1)
+            Grid.columnconfigure(self.Inner_Frame, 1, weight=100)
 
 
             Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
@@ -69,9 +74,8 @@ class Row_Can(Canvas):
             self.Concat_im = PIL.ImageTk.PhotoImage(self.Concat_im)
 
             #Video name and representation:
-            self.subcanvas_First = Canvas(self, bd=0, highlightthickness=0, relief='flat', width=275, height=10,**Color_settings.My_colors.Frame_Base)
+            self.subcanvas_First = Canvas(self.Inner_Frame, bd=0, highlightthickness=0, relief='flat', width=275, **Color_settings.My_colors.Frame_Base)
             self.subcanvas_First.grid(row=0,column=0, sticky="snwe")
-            self.subcanvas_First.grid_propagate(0)
             Grid.columnconfigure(self.subcanvas_First, 0, weight=1)
             Grid.columnconfigure(self.subcanvas_First, 1, weight=1)
             Grid.columnconfigure(self.subcanvas_First, 2, weight=100)
@@ -109,7 +113,7 @@ class Row_Can(Canvas):
             Three_buttons.grid(row=1,column=0,columnspan=2)
 
             #Suppress the video
-            self.sBsupr=Button(Three_buttons, image=self.Supr_im, command=partial(self.main_frame.supr_video, self.Video), width=22, height=22)
+            self.sBsupr=Button(Three_buttons, image=self.Supr_im, command=self.delete_vid, width=22, height=22)
             self.sBsupr.grid(row=0,column=0)
             self.sBsupr.bind("<Enter>", partial(self.main_frame.HW.change_tmp_message, self.Messages["GButton8"]))
             self.sBsupr.bind("<Leave>", self.main_frame.HW.remove_tmp_message)
@@ -129,6 +133,13 @@ class Row_Can(Canvas):
             Bconcat.bind("<Leave>", self.main_frame.HW.remove_tmp_message)
             Bconcat.config(**Color_settings.My_colors.Button_Base)
 
+            #Go 3D
+            B3D=Button(Three_buttons, text="3D", command=self.go_3D)
+            #B3D.grid(row=1,column=0)
+            B3D.config(**Color_settings.My_colors.Button_Base)
+
+
+            #Show the first frame and rotate
             self.view_and_rot=Frame(self.subcanvas_First,**Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
             self.view_and_rot.grid(row=1, column=2)
 
@@ -147,10 +158,10 @@ class Row_Can(Canvas):
             self.Rotate_clockanti.grid(row=0, column=2, sticky="w")
 
             #Options of pretracking:
-            self.Wrapper=Canvas(self, heigh = 125, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
-            self.Wrapper.grid(row=0, column=1, sticky="ew")
-            self.canvas_main = Frame(self.Wrapper, heigh = 125, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
-            self.canvas_main.grid(row=0, column=0, sticky="ew")
+            self.Wrapper=Canvas(self.Inner_Frame, height=125, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
+            self.Wrapper.grid(row=0, column=1, sticky="nsew")
+            self.canvas_main = Frame(self.Wrapper, height=125, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
+            self.canvas_main.grid(row=0, column=0, sticky="nsew")
 
             Pos_col=1
             #Frame_rate
@@ -246,6 +257,9 @@ class Row_Can(Canvas):
             #Create background
             self.subcanvas_Back = Frame(self.canvas_main, bd=0, highlightthickness=0, relief='flat', **Color_settings.My_colors.Frame_Base)
             self.subcanvas_Back.grid(row=0,column=Pos_col, sticky="ew")
+            Grid.columnconfigure(self.subcanvas_Back,0, weight=1)
+            Grid.columnconfigure(self.subcanvas_Back, 1, weight=1)
+
             self.text_back=StringVar()
             self.back_it=StringVar()
             self.back_status=Label(self.subcanvas_Back,textvariable=self.text_back, **Color_settings.My_colors.Label_Base)
@@ -257,9 +271,11 @@ class Row_Can(Canvas):
             self.back_supress_button=Button(self.subcanvas_Back, text=self.Messages["RowB2"], command=self.supress_back, **Color_settings.My_colors.Button_Base)
             self.back_supress_button.grid(row=1, column=1, sticky="we")
 
-            Frame_view_back=Frame(self.subcanvas_Back, **Color_settings.My_colors.Frame_Base)
+            Frame_view_back = Frame(self.subcanvas_Back, height=25, **Color_settings.My_colors.Frame_Base)
             Frame_view_back.grid(row=2, column=0, columnspan=2)
-            self.view_back=Canvas(Frame_view_back, **Color_settings.My_colors.Frame_Base)
+
+
+            self.view_back=Canvas(Frame_view_back, height=25, **Color_settings.My_colors.Frame_Base)
             self.view_back.grid(row=0, column=0)
             self.view_back.bind("<Enter>", self.show_back)
             self.view_back.bind("<Leave>", self.stop_show_back)
@@ -362,6 +378,16 @@ class Row_Can(Canvas):
 
             self.main_frame.canvas_main.bind('<Configure>', self.resize_font)
 
+    def delete_vid(self):
+        self.main_frame.supr_video(self.Video)
+        self.main_frame.save()
+
+    def go_3D(self):
+        self.main_frame.selected_vid=self.Video
+        self.main_frame.combine_3D_video()
+        self.main_frame.update_selections()
+        self.isselected.config(bg=self.list_colors["Fusion_main"])
+
     def save_back_img(self):
         file=filedialog.asksaveasfilename(defaultextension=".png", initialfile=self.Video.User_Name+"_"+self.Messages["Names7"]+".png", filetypes=(("Image", "*.png"),))
         if file!="":
@@ -376,7 +402,7 @@ class Row_Can(Canvas):
     def change_vid(self,new_vid,proj_pos):
         self.Video = new_vid
         self.proj_pos = proj_pos
-        self.sBsupr.config(command=partial(self.main_frame.supr_video, self.Video))
+        self.sBsupr.config(command=self.delete_vid)
         self.Bcopy.config(command=partial(self.main_frame.dupli_video, self.Video))
         self.File_name_var.set(self.Video.User_Name)
         self.update()
@@ -390,7 +416,32 @@ class Row_Can(Canvas):
         self.main_frame.HW.change_tmp_message(self.Messages["General16"])
 
     def Reset_name(self):
-        self.File_name_var.set(self.Video.Name)
+        if not self.Video.Tracked:
+            self.File_name_var.set(self.Video.Name)
+        else:
+            question = MsgBox.Messagebox(parent=self,title="Change the video name",message="This video has already been tracked, if you change it's name all data file will be actualised accordingly and the project will be saved. If analysis were already done, they must be rerun for actualised data. \n Choose a new name:",
+                                         Possibilities=["Validate", "Cancel"], entry=True)#CTXT
+            self.wait_window(question)
+            answer, value = question.result
+
+            if answer==0:
+                if value not in [Vid.User_Name for Vid in self.main_frame.liste_of_videos if Vid != self.Video] and self.File_name_var.get() != "":
+                    result=self.Video.rename(value)
+                    if result:
+                        self.Video.User_Name = value
+                        self.File_name_var.set(value)
+                else:
+                    question = MsgBox.Messagebox(parent=self, title="Name invalid",
+                                                 message="This name has already been attributed to another video.",
+                                                 Possibilities=["Continue"], entry=False)#CTXT
+                    self.wait_window(question)
+
+        self.main_frame.save()
+        self.update_name()
+
+
+
+
 
     def change_vid_name(self, var, indx, mode):
         if self.File_name_var.get() not in [Vid.User_Name for Vid in self.main_frame.liste_of_videos if Vid != self.Video] and self.File_name_var.get()!="":
@@ -440,16 +491,8 @@ class Row_Can(Canvas):
         else:
             X_Pos=50
         cv2.moveWindow(" ", X_Pos, 50)
-        capture = cv2.VideoCapture(self.Video.File_name)#Faster with opencv
-        _, Represent = capture.read()
-        capture.release()
 
-        if self.Video.Rotation == 1:
-            Represent = cv2.rotate(Represent, cv2.ROTATE_90_CLOCKWISE)
-        elif self.Video.Rotation == 2:
-            Represent = cv2.rotate(Represent, cv2.ROTATE_180)
-        if self.Video.Rotation == 3:
-            Represent = cv2.rotate(Represent, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        Represent=self.Video.extract_repre_img()
 
         self.main_frame.HW.change_tmp_message(self.Messages["Row22"])
         cv2.imshow(" ",cv2.resize(Represent,(int(self.Video.or_shape[1]*ratio),int(self.Video.or_shape[0]*ratio))))
@@ -464,15 +507,18 @@ class Row_Can(Canvas):
         cv2.destroyAllWindows()
         self.main_frame.HW.remove_tmp_message
 
-    def select_vid(self,event):
+    def select_vid(self,event=None):
         '''When the user select a video.'''
-        if not self.main_frame.wait_for_vid:
-            self.main_frame.selected_vid=self.Video
-            self.main_frame.update_selections()
-            self.main_frame.moveX()
-        else:
+        if self.main_frame.wait_for_vid:
             self.main_frame.fusion_two_Vids(self.Video)
             self.main_frame.update_selections()
+        elif self.main_frame.wait_for_vid_3D:
+            self.main_frame.fusion_two_Vids_3D(self.Video)
+            self.main_frame.update_selections()
+        else:
+            self.main_frame.selected_vid = self.Video
+            self.main_frame.update_selections()
+            self.main_frame.moveX()
 
     def rotate(self, dir):
         if self.Video.Tracked:
@@ -566,8 +612,8 @@ class Row_Can(Canvas):
 
         else:
             one_every = self.Video.Frame_rate[0] / self.Video.Frame_rate[1]
-            self.Video.Cropped[1][0] = round(round(self.Video.Cropped[1][0] / one_every) * one_every)  # Avoid to try to open un-existing frames after changes in frame-rate
-            self.Video.Cropped[1][1] = round(round(self.Video.Cropped[1][1] / one_every) * one_every)
+            self.Video.Cropped[1][0] = math.floor(math.floor(self.Video.Cropped[1][0] / one_every) * one_every)  # Avoid to try to open un-existing frames after changes in frame-rate
+            self.Video.Cropped[1][1] = math.floor(math.floor(self.Video.Cropped[1][1] / one_every) * one_every)
             self.Video.Frame_nb[1] = int(self.Video.Frame_nb[0] / round(self.Video.Frame_rate[0] / self.Video.Frame_rate[1]))
 
         self.update()
@@ -656,10 +702,10 @@ class Row_Can(Canvas):
         #Change the color/shape of the row to indicate it is/is not selected
         if self.main_frame.selected_vid==self.Video:
             self.isselected.config(bg=self.list_colors["Selected_main"])
-            self.config(bd=10, relief="ridge", highlightthickness=3)
+            self.Inner_Frame.config(bd=10, relief="ridge", highlightthickness=3)
         else:
             self.isselected.config(bg=self.list_colors["Not_selected_main"])
-            self.config(bd=1, relief="ridge", highlightthickness=1)
+            self.Inner_Frame.config(bd=1, relief="ridge", highlightthickness=1)
 
     def update_stab(self):
         # Update the color/info of the stabilisation cell
@@ -749,10 +795,12 @@ class Row_Can(Canvas):
     def update_name(self):
         if self.Video.Tracked:
             self.File_name_ent.config(state="disable")
-            self.BReset_name.config(state="disable")
+            self.BReset_name.bind("<Enter>", partial(self.main_frame.HW.change_tmp_message, "Change the video name"))#CTXT
+            self.BReset_name.bind("<Leave>", self.main_frame.HW.remove_tmp_message)
         else:
             self.File_name_ent.config(state="normal")
-            self.BReset_name.config(state="normal")
+            self.BReset_name.bind("<Enter>", partial(self.main_frame.HW.change_tmp_message, self.Messages["Row16"]))
+            self.BReset_name.bind("<Leave>", self.main_frame.HW.remove_tmp_message)
 
     def update_back(self):
         # Update the color/info of the background cell
@@ -762,7 +810,7 @@ class Row_Can(Canvas):
             self.back_button.config(bg=self.list_colors["Button_ready"], fg=self.list_colors["Fg_Button_ready"])
             self.back_supress_button.config(state="disable")
             #self.view_back.create_image(0, 0, image=self.oeuilB2, anchor=NW)
-            self.view_back.config(width=1, height=1)
+            self.view_back.config(width=1)
             self.save_back_button.grid_forget()
         else:
             self.text_back.set(self.Messages["RowL6"])
@@ -922,34 +970,37 @@ class Row_Can(Canvas):
 
 
     def do_mask(self):
-        Which_part = 0
-        if self.Video.Cropped[0]:
-            if len(self.Video.Fusion) > 1:  # If there was a concatenation
-                Which_part = \
-                [index for index, Fu_inf in enumerate(self.Video.Fusion) if Fu_inf[0] <= self.Video.Cropped[1][0]][-1]
-
-        capture = cv2.VideoCapture(self.Video.Fusion[Which_part][1])  # Faster with opencv
-        capture.set(cv2.CAP_PROP_POS_FRAMES, self.Video.Cropped[1][0] - self.Video.Fusion[Which_part][0])
-        _, Represent = capture.read()
-        capture.release()
-
-        if self.Video.Rotation == 1:
-            Represent = cv2.rotate(Represent, cv2.ROTATE_90_CLOCKWISE)
-        elif self.Video.Rotation == 2:
-            Represent = cv2.rotate(Represent, cv2.ROTATE_180)
-        if self.Video.Rotation == 3:
-            Represent = cv2.rotate(Represent, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
         mask = Dr.draw_mask(self.Video)
 
         if self.Video.Back[0] == 1:  # Create the image
-
             if len(self.Video.Back[1].shape) > 2:
                 mask_to_show = cv2.bitwise_and(cv2.cvtColor(self.Video.Back[1], cv2.COLOR_BGR2RGB),
                                                cv2.cvtColor(self.Video.Back[1], cv2.COLOR_BGR2RGB), mask=mask)
             else:
                 mask_to_show = cv2.bitwise_and(self.Video.Back[1], self.Video.Back[1], mask=mask)
+
         else:
+            Which_part = 0
+            if self.Video.Cropped[0]:
+                if len(self.Video.Fusion) > 1:  # If there was a concatenation
+                    Which_part = [index for index, Fu_inf in enumerate(self.Video.Fusion) if
+                                  Fu_inf[0] <= self.Video.Cropped[1][0]][-1]
+
+            if self.Video.type == "Video":
+                capture = cv2.VideoCapture(self.Video.Fusion[Which_part][1])  # Faster with opencv
+                capture.set(cv2.CAP_PROP_POS_FRAMES, self.Video.Cropped[1][0] - self.Video.Fusion[Which_part][0])
+                _, Represent = capture.read()
+                capture.release()
+            else:
+                Represent = cv2.imread(os.path.join(self.Video.Fusion[Which_part][1], self.Video.img_list[self.Video.Cropped[1][0] - self.Video.Fusion[Which_part][0]]))
+
+            if self.Video.Rotation == 1:
+                Represent = cv2.rotate(Represent, cv2.ROTATE_90_CLOCKWISE)
+            elif self.Video.Rotation == 2:
+                Represent = cv2.rotate(Represent, cv2.ROTATE_180)
+            if self.Video.Rotation == 3:
+                Represent = cv2.rotate(Represent, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
             if self.Video.Cropped_sp[0]:
                 repre_c = Represent[self.Video.Cropped_sp[1][0]:self.Video.Cropped_sp[1][2],
                           self.Video.Cropped_sp[1][1]:self.Video.Cropped_sp[1][3]]
@@ -1005,7 +1056,7 @@ class Row_Can(Canvas):
             self.Video.Scale[1] = ""
             self.update_scale()
 
-    def scale_vid(self):
+    def scale_vid(self, speed=0):
         # Open the window in which the scale can be defined
         if self.Video.Tracked:
             question = MsgBox.Messagebox(parent=self, title="",
@@ -1014,11 +1065,20 @@ class Row_Can(Canvas):
             self.wait_window(question)
             answer = question.result
             if answer==0 and self.Video.clear_files():
-                self.main_frame.Change_win(Interface_scaling.Scale(parent=self.main_frame.canvas_main, boss=self,
-                                                                   main_frame=self.main_frame, Video_file=self.Video))
+                if self.Video.comb_V_3D is None:
+                    self.main_frame.Change_win(Interface_scaling.Scale(parent=self.main_frame.canvas_main, boss=self,
+                                                                       main_frame=self.main_frame, Video_file=self.Video, speed=speed))
+                else:
+                    self.main_frame.Change_win(Interface_scaling_3D.Scale(parent=self.main_frame.canvas_main, boss=self,
+                                                                       main_frame=self.main_frame, Video_file=self.Video, speed=speed))
         else:
-            self.main_frame.Change_win(Interface_scaling.Scale(parent=self.main_frame.canvas_main, boss=self,
-                                                               main_frame=self.main_frame, Video_file=self.Video))
+            if self.Video.comb_V_3D is None:
+                self.main_frame.Change_win(Interface_scaling.Scale(parent=self.main_frame.canvas_main, boss=self,
+                                                               main_frame=self.main_frame, Video_file=self.Video, speed=speed))
+            else:
+                self.main_frame.Change_win(Interface_scaling_3D.Scale(parent=self.main_frame.canvas_main, boss=self,
+                                                                   main_frame=self.main_frame, Video_file=self.Video,
+                                                                   speed=speed))
 
     def extend_scale(self):
         # Open a window to expend the scale of this video to others

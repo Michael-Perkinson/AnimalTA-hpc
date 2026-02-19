@@ -1,12 +1,16 @@
 from tksheet import Sheet
+from tkinter import filedialog
 from tkinter import *
 import os
-from AnimalTA.A_General_tools import Function_draw_mask as Dr, Color_settings, UserMessages
+from AnimalTA.A_General_tools import Function_draw_arenas as Dr, Color_settings, UserMessages
+import csv
+
 
 class table(Frame):
     def __init__(self, parent,main):
         Frame.__init__(self, parent,main)
         self.config(**Color_settings.My_colors.Frame_Base)
+
         parent.grid_columnconfigure(0, weight = 1)
         parent.grid_rowconfigure(0, weight = 1)
         parent.grid_columnconfigure(0, weight = 1)
@@ -55,8 +59,7 @@ class table(Frame):
 
             if V.Mask[0]:
                 to_highlight.append([ID,9])
-                mask=Dr.draw_mask(V)
-                Arenas_with_holes, Arenas = Dr.exclude_inside(mask)
+                Arenas = Dr.get_arenas(V)
                 nb_arenas = len(Arenas)
             else:
                 nb_arenas=1
@@ -83,10 +86,37 @@ class table(Frame):
             if corrected:
                 to_highlight.append([ID, 13])
 
-            table.append([V.User_Name,V.Rotation*90,V.Frame_rate[1],V.Cropped[0],round((V.Cropped[1][1]-V.Cropped[1][0]+1)/V.Frame_rate[0],3),V.Cropped_sp[0],str(V.shape[0]) + ", " + str(V.shape[1]),V.Stab[0],V.Back[0]>0,nb_arenas, str(round(V.Scale[0],3))+" px/"+ V.Scale[1],track,V.Tracked,corrected])
+
+
+            ids_changed=False
+            if V.Tracked:
+                ids_changed=[name[1] for name in V.Identities] != [name[1] for name in V.Identities_saved]
+
+                if ids_changed:
+                    to_highlight.append([ID, 14])
+            # CTXT  (BEgin/End vid)
+            table.append([V.User_Name,#1
+                          V.Rotation*90,#2
+                          V.Frame_rate[1],#3
+                          V.Cropped[0],#4
+                          V.Cropped[1][0]/V.Frame_rate[0],#5
+                          V.Cropped[1][1]/V.Frame_rate[0],#6
+                          round((V.Cropped[1][1]-V.Cropped[1][0]+1)/V.Frame_rate[0],3),#7
+                          V.Cropped_sp[0],#8
+                          V.Cropped_sp[1][1],#9
+                          V.Cropped_sp[1][0],#10
+                          str(V.shape[0]) + ", " + str(V.shape[1]),#11
+                          V.Stab[0],#12
+                          V.Back[0]>0,#13
+                          nb_arenas, #14
+                          str(round(V.Scale[0],3))+" px/"+ V.Scale[1],#15
+                          track,#16
+                          V.Tracked,#17
+                          corrected,#18
+                          ids_changed])#19
             ID+=1
 
-        self.sheet = Sheet(self, data = table, headers=[self.Messages["Summary_Table_headers1"],self.Messages["Summary_Table_headers2"],self.Messages["Summary_Table_headers3"],self.Messages["Summary_Table_headers4"],self.Messages["Summary_Table_headers5"],self.Messages["Summary_Table_headers6"],self.Messages["Summary_Table_headers7"],self.Messages["Summary_Table_headers8"],self.Messages["Names7"],self.Messages["Names8"],self.Messages["Summary_Table_headers9"],self.Messages["Summary_Table_headers10"],self.Messages["Summary_Table_headers11"],self.Messages["Summary_Table_headers12"]])
+        self.sheet = Sheet(self, data = table, headers=[self.Messages["Summary_Table_headers1"],self.Messages["Summary_Table_headers2"],self.Messages["Summary_Table_headers3"],self.Messages["Summary_Table_headers4"],"Begin Vid","End Vid",self.Messages["Summary_Table_headers5"],self.Messages["Summary_Table_headers6"],"X Origin","Y Origin",self.Messages["Summary_Table_headers7"],self.Messages["Summary_Table_headers8"],self.Messages["Names7"],self.Messages["Names8"],self.Messages["Summary_Table_headers9"],self.Messages["Summary_Table_headers10"],self.Messages["Summary_Table_headers11"],self.Messages["Summary_Table_headers12"],"IDs modified"])#CTXT
         self.sheet.set_options(top_left_bg=Color_settings.My_colors.list_colors["Table1"],
                                top_left_fg=Color_settings.My_colors.list_colors["Table1"],
                                top_left_fg_highlight=Color_settings.My_colors.list_colors["Table_grid"],
@@ -138,3 +168,17 @@ class table(Frame):
         self.sheet.enable_bindings()
         self.grid(row = 0, column = 0, sticky = "nswe")
         self.sheet.grid(row = 0, column = 0, sticky = "nswe")
+
+        #CTXT
+        Button_save=Button(self,text="Save summary", command=self.save, **Color_settings.My_colors.Button_Base).grid(row = 1, column = 0, sticky = "nswe")
+
+    def save(self):
+        file = filedialog.asksaveasfilename(defaultextension=".csv",
+                                            filetypes=(("Table", "*.csv"),))
+        if file != "":
+            data = self.sheet.get_sheet_data()
+            with open(file, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(self.sheet.headers())
+                writer.writerows(data)
+

@@ -3,25 +3,18 @@ import time
 import cv2
 import decord
 import numpy as np
-from AnimalTA.A_General_tools import Class_stabilise, UserMessages
+from AnimalTA.A_General_tools import Class_stabilise, UserMessages, Video_loader as VL
 from AnimalTA.D_Tracking_process import security_settings_track
 import os
 import pickle
 
-
-def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_image_to_show, mask, or_bright, Extracted_cnts, Too_much_frame, AD, silhouette=False):
+def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_image_to_show, mask, or_bright, Extracted_cnts, AD, result_container={}):
     if Vid.Stab[0]:
         prev_pts = Vid.Stab[1]
     last_grey=None#We keep here the last grey image for flicker correction
     penult_grey=None
     if Vid.Back[0] == 2:  # Dynamic background
-        progressive_back = cv2.createBackgroundSubtractorMOG2(history=1000, varThreshold= Vid.Track[1][0], detectShadows=False)
-
-    Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
-    with open(Param_file, 'rb') as fp:
-        Params = pickle.load(fp)
-
-    relative_back = Params["Relative_background"]
+        progressive_back = cv2.createBackgroundSubtractorMOG2(history=int(Vid.Track[1][10][3]*Vid.Frame_rate[1]), varThreshold= Vid.Track[1][0], detectShadows=False)
 
     if Vid.Track[1][10][0] == 0:
         try:
@@ -34,12 +27,10 @@ def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_ima
         except:
             TMP_back = Vid.Back[1].copy()
 
-
+    deb=time.time()
     for frame in np.arange(start, end + one_every,one_every):  # We go frame by frame respecting the frame rate defined by user
         frame=round(frame)
-        if Extracted_cnts.qsize()>=500:
-            Too_much_frame.clear()
-            Too_much_frame.wait()
+
 
         if security_settings_track.stop_threads:
             del security_settings_track.capture
@@ -58,13 +49,14 @@ def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_ima
             security_settings_track.capture.seek(0)
             security_settings_track.activate_protection=False
 
-        Timg = security_settings_track.capture[frame - Vid.Fusion[Which_part][0]].asnumpy()
+        if Vid.type=="Video":
+            Timg = security_settings_track.capture[frame - Vid.Fusion[Which_part][0]].asnumpy()
+            if security_settings_track.activate_protection:
+                security_settings_track.capture.seek(0)
 
-        if security_settings_track.activate_protection:
-            security_settings_track.capture.seek(0)
+        else:
+            Timg = security_settings_track.capture[frame]
 
-        if Vid.Cropped_sp[0]:
-            Timg = Timg[Vid.Cropped_sp[1][0]:Vid.Cropped_sp[1][2],Vid.Cropped_sp[1][1]:Vid.Cropped_sp[1][3]]
 
         if Vid.Rotation == 1:
             Timg = cv2.rotate(Timg, cv2.ROTATE_90_CLOCKWISE)
@@ -73,27 +65,18 @@ def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_ima
         if Vid.Rotation == 3:
             Timg = cv2.rotate(Timg, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
+        if Vid.Cropped_sp[0]:
+            Timg = Timg[Vid.Cropped_sp[1][0]:Vid.Cropped_sp[1][2],Vid.Cropped_sp[1][1]:Vid.Cropped_sp[1][3]]
+
         kernel = np.ones((3, 3), np.uint8)
         # Stabilisation
         if Vid.Stab[0]:
             Timg = Class_stabilise.find_best_position(Vid=Vid, Prem_Im=Prem_image_to_show, frame=Timg, show=False, prev_pts=prev_pts)
-
+        #Timg_or=Timg.copy()
         #Convert to grey
         if Vid.Track[1][10][0]==0:
             Timg = cv2.cvtColor(Timg, cv2.COLOR_BGR2GRAY)
 
-        # Correct flicker
-        if Vid.Track[1][9]:
-            if frame==start:
-                last_grey=Timg.copy()
-                penult_grey=last_grey.copy()
-            elif frame>start:
-                Timg = cv2.addWeighted(last_grey, 0.5, Timg, 1 - 0.5, 0)
-                if frame>start+1:
-                    Timg = cv2.addWeighted(penult_grey, 0.5, Timg, 1 - 0.5, 0)
-
-                penult_grey = last_grey.copy()
-                last_grey = Timg.copy()
 
         # If we want to apply light correction:
         if Vid.Track[1][7]:
@@ -110,6 +93,7 @@ def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_ima
             Timg = cv2.convertScaleAbs(grey, alpha=1 / ratio, beta=0)
 
         img=Timg
+
 
         # Backgroud and threshold
         if Vid.Back[0] == 2:  # Dynamic background
@@ -146,7 +130,11 @@ def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_ima
         elif Vid.Back[0]==0: #Adpative threshold
             if Vid.Track[1][10][1] == 2:
                 img = cv2.bitwise_not(img)
-            img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,  Vid.Track[1][0] + 1 , 10)
+
+            if Vid.Track[1][0]%2==0:
+                Vid.Track[1][0]+=1
+
+            img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,  Vid.Track[1][0] , Vid.Track[1][11])
 
         # Mask
         if Vid.Mask[0]:
@@ -160,12 +148,42 @@ def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_ima
         if Vid.Track[1][2] > 0:
             img = cv2.dilate(img, kernel, iterations=Vid.Track[1][2])
 
+
         # Find contours:
         cnts, _ = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
         kept_cnts=filter_cnts(cnts, Vid)
+
+        # if frame%10==0:
+        #     if frame%80==0 or frame%90==0:
+        #         folder = "F:/AnimalTA/AnimalTA_developpement/TestAI/dataset/images/val"
+        #         folder_lab = "F:/AnimalTA/AnimalTA_developpement/TestAI/dataset/labels/val"
+        #     else:
+        #         folder = "F:/AnimalTA/AnimalTA_developpement/TestAI/dataset/images/train"
+        #         folder_lab = "F:/AnimalTA/AnimalTA_developpement/TestAI/dataset/labels/train"
+        #     Timg_or=cv2.cvtColor(Timg_or,cv2.COLOR_RGB2BGR)
+        #
+        #     cv2.imwrite(folder+"/"+"Mouse_vid1_"+str(frame)+".jpeg",Timg_or)
+        #
+        #     txt_filename=folder_lab+"/"+"Mouse_vid1_"+str(frame)+".txt"
+        #     species=0#0=mouse
+        #     height, width, _ = Timg_or.shape  # Get image dimensions
+        #     with open(txt_filename, "w") as f:
+        #         for cnt in kept_cnts:
+        #             x, y, w, h = cv2.boundingRect(cnt)
+        #             # Convert to YOLO format (normalize values)
+        #             x_center = (x + w / 2) / width
+        #             y_center = (y + h / 2) / height
+        #             w_norm = w / width
+        #             h_norm = h / height
+        #
+        #             # Write to the file
+        #             f.write(f"{species} {x_center:.6f} {y_center:.6f} {w_norm:.6f} {h_norm:.6f}\n")
+
+
         Extracted_cnts.put([frame,kept_cnts])
 
+    result_container['result'] = time.time()-deb
 
 
 def filter_cnts(cnts, Vid):

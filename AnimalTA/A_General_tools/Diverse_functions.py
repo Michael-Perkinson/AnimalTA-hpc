@@ -7,11 +7,27 @@ import os
 from AnimalTA.A_General_tools import UserMessages
 import urllib.request
 
+list_details_options = ["Frame", "Time", "X-Y_Coordinates", "Distance", "Speed", "Moving", "Corrected_Moving",
+                "Acceleration", "Orientation", "Angle_change", "Angular_speed", "Meander",
+                "Distances_to_elem_interest", "Inter-individual_distances", "Exploration_data_per_frame"]#CTXT ajouter small info explanations for those data
+
+
+list_stops_moves_options = ["Mean_dur_stops","Events_dur_stops","Mean_dur_moves","Events_dur_moves"]
+
+def prepare_stops_moves_option(Vid):
+    Vid.Stops_Moves_options = [{elem: False for elem in list_stops_moves_options},0]
+    return(list_stops_moves_options)
+
+def prepare_details(Vid):
+    Vid.Details_options = {elem: False for elem in list_details_options}
+    for key in ["Time", "X-Y_Coordinates", "Distance", "Speed", "Moving", "Inter-individual_distances", "Distances_to_elem_interest"]:
+        Vid.Details_options[key] = True
+    return(list_details_options)
+
+
 def download_new_version(last_version, parent=None):
     try:
-        print("downloading")
         Update_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.crdownload"))
-        print("http://vchiara.eu/AnimalTA_installer_"+last_version+".exe")
         urllib.request.urlretrieve("http://vchiara.eu/AnimalTA_installer_"+last_version+".exe", Update_file)
         Update_file_exe = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.exe"))
         try:
@@ -22,7 +38,6 @@ def download_new_version(last_version, parent=None):
 
         f = open(UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Last_downloaded")), "w", encoding="utf-8")
         f.write(last_version)
-        print("finished download")
         f.close()
 
         if parent!=None:
@@ -92,9 +107,9 @@ class LSqEllipse:
         x, y = np.asarray(data, dtype=float)
 
         # Quadratic part of design matrix [eqn. 15] from (*)
-        D1 = np.mat(np.vstack([x ** 2, x * y, y ** 2])).T
+        D1 = np.asmatrix(np.vstack([x ** 2, x * y, y ** 2])).T
         # Linear part of design matrix [eqn. 16] from (*)
-        D2 = np.mat(np.vstack([x, y, np.ones(len(x))])).T
+        D2 = np.asmatrix(np.vstack([x, y, np.ones(len(x))])).T
 
         # forming scatter matrix [eqn. 17] from (*)
         S1 = D1.T * D1
@@ -102,7 +117,7 @@ class LSqEllipse:
         S3 = D2.T * D2
 
         # Constraint matrix [eqn. 18]
-        C1 = np.mat('0. 0. 2.; 0. -1. 0.; 2. 0. 0.')
+        C1 = np.asmatrix('0. 0. 2.; 0. -1. 0.; 2. 0. 0.')
 
         # Reduced scatter matrix [eqn. 29]
         M = C1.I * (S1 - S2 * S3.I * S2.T)
@@ -228,7 +243,7 @@ def smooth_coos(Coos, window_length, polyorder):
     #Apply a smoothing filter
     for ind in range(len(Coos)):
         ind_coo=[[np.nan if val==-1000 else val for val in row ] for row in Coos[ind]]
-        ind_coo=np.array(ind_coo, dtype=np.float)
+        ind_coo=np.array(ind_coo, dtype=float)
         for column in range(2):
             Pos_NA = np.where(np.isnan(ind_coo[:, column]))[0]
             debuts = [0]
@@ -254,7 +269,7 @@ def smooth_coos(Coos, window_length, polyorder):
                                                                    window_length,
                                                                    polyorder, deriv=0, delta=1.0, axis=- 1,
                                                                    mode='interp', cval=0.0)
-        ind_coo = ind_coo.astype(np.str)
+        ind_coo = ind_coo.astype(str)
         ind_coo[np.where(ind_coo == "nan")] = -1000
         ind_coo = ind_coo.astype(dtype=float)
         Coos[ind] = ind_coo

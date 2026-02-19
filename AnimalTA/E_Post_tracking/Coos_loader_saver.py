@@ -106,8 +106,6 @@ def load_variable(Vid, path):
                     who_is_here[im] = who_is_here[im] + [count]
             count += 1
 
-
-
     load_frame.destroy()
     newWindow.destroy()
     return(Coos, who_is_here)
@@ -134,22 +132,31 @@ def load_fixed(Vid, path, location=None):
             count+=1
 
     or_table = np.array(or_table)
-    Coos = np.full((len(Vid.Identities), len(or_table)-1, 2), -1000,dtype=float)
-    or_table = np.asarray(or_table)
-    or_table[or_table == "NA"] = -1000
-    count=0
-    for Ind in range(len(Vid.Identities)):
-        load_frame.show_load(1/3 + (count / len(Vid.Identities))*2/3)
-        Coos[Ind] = or_table[1:,2*Ind+2:2*Ind+4]
-        count+=1
 
+    try:
+        Coos = np.full((len(Vid.Identities), len(or_table)-1, 3), -1000,dtype=float)#CTXT keep only except
+        or_table = np.asarray(or_table)
+        or_table[or_table == "NA"] = -1000
+        count=0
+        for Ind in range(len(Vid.Identities)):
+            load_frame.show_load(1/3 + (count / len(Vid.Identities))*2/3)
+            Coos[Ind] = or_table[1:,2*Ind+2:2*Ind+5]
+            count+=1
+    except:
+        Coos = np.full((len(Vid.Identities), len(or_table)-1, 2), -1000,dtype=float)
+        or_table = np.asarray(or_table)
+        or_table[or_table == "NA"] = -1000
+        count=0
+        for Ind in range(len(Vid.Identities)):
+            load_frame.show_load(1/3 + (count / len(Vid.Identities))*2/3)
+            Coos[Ind] = or_table[1:,2*Ind+2:2*Ind+4]
+            count+=1
 
     load_frame.destroy()
     if location==None:
         frame.destroy()
 
     load_frame.grab_release()
-
     return (Coos, [list(range(len(Vid.Identities)))]*len(Coos[0,:,0]))
 
 def save_fixed(Vid, Coos, path, location=None):
@@ -160,9 +167,6 @@ def save_fixed(Vid, Coos, path, location=None):
     load_frame = Class_loading_Frame.Loading(frame)  # Progression bar
     load_frame.grid()
     load_frame.show_load(0)
-
-
-    one_every=Vid.Frame_rate[0] / Vid.Frame_rate[1]
     General_Coos=np.zeros([Coos.shape[1]+1,Coos.shape[2]*Coos.shape[0]+2], dtype="object")
 
     liste_times=range(0, Coos.shape[1])
@@ -171,12 +175,13 @@ def save_fixed(Vid, Coos, path, location=None):
     tmp=np.array(General_Coos[1:, 0]/Vid.Frame_rate[1], dtype="float")
     General_Coos[1:, 1]=np.around(tmp,2)
 
-    General_Coos[0,:]=["Frame","Time"]+[Col+"_Arena"+str(ind[0])+"_"+str(ind[1]) for ind in Vid.Identities for Col in ["X","Y"]]
+    General_Coos[0,:]=["Frame","Time"]+[Col+"_Arena"+str(ind[0])+"_"+str(ind[1]) for ind in Vid.Identities for Col in ["X","Y"]]#CTXT,"Sleeping"
     Coos = Coos.astype(dtype=object)
     Coos[Coos==-1000]="NA"
+
     for Ind in range(Coos.shape[0]):
         load_frame.show_load(((Ind+1)/(Coos.shape[0]+1))*1/3)
-        General_Coos[1:,Ind*2+2:Ind*2+2+2]=Coos[Ind]
+        General_Coos[1:,Ind*2+2:Ind*2+2+Coos.shape[2]]=Coos[Ind]
 
     with open(path, 'w', newline='', encoding="utf-8") as file:
         writer = csv.writer(file, delimiter=";")

@@ -1,5 +1,5 @@
 from tkinter import *
-from AnimalTA.A_General_tools import Function_draw_mask as Dr, UserMessages, Color_settings
+from AnimalTA.A_General_tools import Function_draw_arenas as Dr, UserMessages, Color_settings
 import cv2
 import PIL
 import numpy as np
@@ -29,9 +29,7 @@ class Assign(Frame):
         self.winfo_toplevel().title(self.Messages["Param9"])
 
         #We look for the arenas and their names
-        self.mask = Dr.draw_mask(self.boss.Vid)
-        self.Arenas, _ = cv2.findContours(self.mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        self.Arenas = Dr.Organise_Ars(self.Arenas)
+        self.Arenas = Dr.get_arenas(self.boss.Vid)
 
         Grid.columnconfigure(self,0,weight=1)
         Grid.rowconfigure(self, 0, weight=1)
@@ -43,9 +41,15 @@ class Assign(Frame):
         self.Opn_Fr = Frame(self, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
         self.Opn_Fr.grid(row=0, column=1, sticky="nsew")
         self.all_vals_var=[IntVar(self,x) for x in self.boss.liste_ind_per_ar]
-        for row in range(len(self.Arenas)):
-            Label(self.Opn_Fr, text=self.Messages["Arena"] + " " + str(row), **Color_settings.My_colors.Label_Base).grid(row=row, column=0)
-            Scale(self.Opn_Fr,from_=1, to=100, variable=self.all_vals_var[row], orient=HORIZONTAL, **Color_settings.My_colors.Scale_Base).grid(row=row, column=1)
+        col=0
+        row=0
+        for Ar in range(len(self.Arenas)):
+            Label(self.Opn_Fr, text=self.Messages["Arena"] + " " + str(Ar), **Color_settings.My_colors.Label_Base).grid(row=row, column=(col*2))
+            Scale(self.Opn_Fr,from_=1, to=100, variable=self.all_vals_var[Ar], orient=HORIZONTAL, **Color_settings.My_colors.Scale_Base).grid(row=row, column=(col*2)+1)
+            row+=1
+            if row>=10:
+                col+=1
+                row=0
 
         #Validation button
         self.B_validate = Button(self.Opn_Fr, text=self.Messages["Validate"], command=self.validate, **Color_settings.My_colors.Button_Base)

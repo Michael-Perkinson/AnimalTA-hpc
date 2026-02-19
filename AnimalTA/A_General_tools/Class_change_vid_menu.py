@@ -13,8 +13,10 @@ class Change_Vid_Menu(Frame):
         self.func=func
 
         #All videos are available for pretracking processes, but only tracked videos are available for post-tracking processes
-        if self.func!="analysis" and self.func!="check" and self.func!="event":
+        if self.func!="analysis" and self.func!="check" and self.func!="event" and self.func!="back":
             self.dict_Names = {Video.User_Name: Video for Video in self.main_frame.liste_of_videos}
+        elif self.func=="back":
+            self.dict_Names = {Video.User_Name: Video for Video in self.main_frame.liste_of_videos if Video.Back[0]==1}
         else:
             self.dict_Names = {Video.User_Name: Video for Video in self.main_frame.liste_of_videos if Video.Tracked}
         holder = StringVar()
@@ -28,7 +30,7 @@ class Change_Vid_Menu(Frame):
     def change_vid(self, vid):
         #Change the current video for another one (vid)
         #The speed info indicates at which speed the Video-Reader should be opened (to avoid that the user needs to change each time when changing the vidéo)
-        if self.func != "mask" and self.func!="scale":
+        if self.func != "mask" and self.func != "back":
             speed=self.parent.Vid_Lecteur.speed.get()
         if self.func =="analysis":
             CheckVar=self.parent.CheckVar.get()
@@ -38,12 +40,14 @@ class Change_Vid_Menu(Frame):
                 self.main_frame.list_projects.append(Class_Row_Videos.Row_Can(parent=self.main_frame.canvas_rows, main_boss=self.main_frame, Video_file=V, proj_pos=len(self.main_frame.list_projects)))
                 if self.func=="crop":
                     self.main_frame.list_projects[-1].crop_vid(speed)
+                elif self.func=="back":
+                    self.main_frame.list_projects[-1].back_vid()
                 elif self.func=="mask":
                     self.main_frame.list_projects[-1].mask_vid()
                 elif self.func == "stab":
                     self.main_frame.list_projects[-1].check_stab(speed)
                 elif self.func == "scale":
-                    self.main_frame.list_projects[-1].scale_vid()
+                    self.main_frame.list_projects[-1].scale_vid(speed)
                 elif self.func=="param":
                     self.main_frame.selected_vid = self.dict_Names[vid]
                     self.main_frame.Beg_track(speed)

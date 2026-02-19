@@ -6,13 +6,14 @@ import numpy as np
 
 class Details_fps(Frame):
     """ This is a small Frame in which the user can define the nomber of targets per arena, in the case the number is variable between arenas."""
-    def __init__(self, parent, boss, **kwargs):
+    def __init__(self, parent, boss, vid_exist=True, **kwargs):
         Frame.__init__(self, parent, bd=5, **kwargs)
         self.parent=parent
         self.boss=boss
         self.grid(sticky="nsew")
         self.config(**Color_settings.My_colors.Frame_Base)
         self.grab_set()
+        self.vid_exist=vid_exist
 
         Grid.columnconfigure(self.parent,0,weight=1)
         Grid.rowconfigure(self.parent, 0, weight=1)
@@ -56,7 +57,10 @@ class Details_fps(Frame):
 
         self.new_val_fps.trace('w', self.change_fps)
         self.new_val_spf.trace('w', self.change_spf)
-        self.new_val_fps.set(self.boss.Video.Frame_rate[0])
+        if self.vid_exist:
+            self.new_val_fps.set(self.boss.Video.Frame_rate[0])
+        else:
+            self.new_val_fps.set(25)
 
 
     def change_fps(self, *args):
@@ -98,25 +102,30 @@ class Details_fps(Frame):
 
 
     def validate(self):
-        try:
-            new_frame_rate = float(self.new_val_fps.get())
+        if self.vid_exist:
+            try:
+                new_frame_rate = float(self.new_val_fps.get())
+                one_every = self.boss.Video.Frame_rate[0] / new_frame_rate
+                new_frame_nb=int(self.boss.Video.Frame_nb[0] / (self.boss.Video.Frame_rate[0] / new_frame_rate))
 
-            one_every = self.boss.Video.Frame_rate[0] / new_frame_rate
-            new_frame_nb=int(self.boss.Video.Frame_nb[0] / (self.boss.Video.Frame_rate[0] / new_frame_rate))
+                if new_frame_nb>=10:
+                    self.boss.Video.Cropped[1][0] = round(round(self.boss.Video.Cropped[1][0] / one_every) * one_every)  # Avoid to try to open un-existing frames after changes in frame-rate
+                    self.boss.Video.Cropped[1][1] = round(round(self.boss.Video.Cropped[1][1] / one_every) * one_every)
+                    self.boss.Video.Frame_rate[1]=new_frame_rate
+                    self.boss.Video.Frame_nb[1] = new_frame_nb
 
-            if new_frame_nb>=10:
-                self.boss.Video.Cropped[1][0] = round(round(self.boss.Video.Cropped[1][0] / one_every) * one_every)  # Avoid to try to open un-existing frames after changes in frame-rate
-                self.boss.Video.Cropped[1][1] = round(round(self.boss.Video.Cropped[1][1] / one_every) * one_every)
-                self.boss.Video.Frame_rate[1]=new_frame_rate
-                self.boss.Video.Frame_nb[1] = new_frame_nb
+                    #Save and destroy the parent window
+                    self.boss.update()
+                    self.grab_release()
+                    self.parent.destroy()
 
-                #Save and destroy the parent window
-                self.boss.update()
-                self.grab_release()
-                self.parent.destroy()
-
-        except:
-            pass
+            except:
+                pass
+        else:
+            self.grab_release()
+            self.boss.new_fps=float(self.new_val_fps.get())
+            self.destroy()
+            self.parent.destroy()
 
 
 

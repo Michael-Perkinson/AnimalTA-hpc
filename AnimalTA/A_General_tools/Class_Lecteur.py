@@ -1,13 +1,16 @@
 from tkinter import *
 import numpy as np
 import cv2
-from AnimalTA.A_General_tools import Class_Scroll_crop, Function_draw_mask as Dr, Video_loader as VL, UserMessages, Color_settings, Message_simple_question as MsgBox
+from AnimalTA.A_General_tools import Class_Scroll_crop, Function_draw_arenas as Dr, Video_loader as VL, UserMessages, Color_settings, Message_simple_question as MsgBox
 import time
 import PIL.Image, PIL.ImageTk
 import psutil
 import os
 import math
 from PIL import ImageFont, ImageDraw, Image
+import copy
+
+
 
 class Lecteur(Frame):
     """
@@ -16,7 +19,7 @@ class Lecteur(Frame):
     containers (higher level classes) through bindings on the image canvas.
     """
 
-    def __init__(self, parent, Vid, ecart=0, show_cropped=True, show_whole_frame=False, **kwargs):
+    def __init__(self, parent, Vid, ecart=0, show_cropped=True, show_whole_frame=False, First_frame=None, **kwargs):
         Frame.__init__(self, parent, bd=5, **kwargs)
         self.parent=parent #The container of the Video Reader
         self.Vid=Vid #The Video to be displayed
@@ -26,6 +29,9 @@ class Lecteur(Frame):
         self.config(borderwidth=0, highlightthickness=0,**Color_settings.My_colors.Frame_Base)
         self.show_whole_frame=show_whole_frame
 
+        self.point_of_interest=[-1000,-1000]
+        self.moving_pt_interest=False
+
         #Impotrt the language settings
         self.Language = StringVar()
         f = open(UserMessages.resource_path(UserMessages.resource_path(os.path.join("AnimalTA","Files","Language"))), "r", encoding="utf-8")
@@ -33,6 +39,8 @@ class Lecteur(Frame):
         self.LanguageO = self.Language.get()
         self.Messages = UserMessages.Mess[self.Language.get()]
         f.close()
+
+        self.no_zoom=False
 
         self.bind("<Configure>", self.update_ratio)
 
@@ -48,7 +56,15 @@ class Lecteur(Frame):
         self.wait = (1 / (self.fr_rate))
         self.to_sub = round(self.Vid.Cropped[1][0] / self.one_every)
 
-        self.update_image(round(self.Vid.Cropped[1][0]/self.one_every), first=True)
+
+        if First_frame is None:
+            self.First_frame = self.Vid.Cropped[1][0]
+        else:
+            self.First_frame = First_frame
+
+
+        self.update_image(round(self.First_frame / self.one_every), first=True)
+
         self.playing=False
 
         self.canvas_video = Canvas(self, highlightthickness=0, borderwidth=0,**Color_settings.My_colors.Frame_Base)
@@ -66,22 +82,27 @@ class Lecteur(Frame):
         self.canvas_buttons.grid(row=3, column=0, sticky="nsew")
         Grid.columnconfigure(self.canvas_buttons, 0, weight=1)
 
+        self.x_coos= Label(self.canvas_buttons, text="X =", **Color_settings.My_colors.Label_Base)
+        self.x_coos.grid(row=0, column=2, columnspan=2)
+        self.y_coos = Label(self.canvas_buttons, text="Y =", **Color_settings.My_colors.Label_Base)
+        self.y_coos.grid(row=0, column=4, columnspan=2)
+
         # Buttons:
         self.bouton_Play = Button(self.canvas_buttons, text=self.Messages["PlayB1"], command=self.play, **Color_settings.My_colors.Button_Base)
-        self.bouton_Play.grid(row=0, column=1, sticky="we")
+        self.bouton_Play.grid(row=1, column=1, sticky="we")
         self.bouton_Stop = Button(self.canvas_buttons, text=self.Messages["PlayB2"], command=self.stop, **Color_settings.My_colors.Button_Base)
-        self.bouton_Stop.grid(row=0, column=3, sticky="we")
+        self.bouton_Stop.grid(row=1, column=3, sticky="we")
         self.bouton_GTBeg = Button(self.canvas_buttons, text=self.Messages["PlayB3"], command=self.GotoBeg, **Color_settings.My_colors.Button_Base)
-        self.bouton_GTBeg.grid(row=0, column=5, sticky="we")
+        self.bouton_GTBeg.grid(row=1, column=5, sticky="we")
         self.bouton_GTEnd = Button(self.canvas_buttons, text=self.Messages["PlayB4"], command=self.GotoEnd, **Color_settings.My_colors.Button_Base)
-        self.bouton_GTEnd.grid(row=0, column=7, sticky="we")
+        self.bouton_GTEnd.grid(row=1, column=7, sticky="we")
 
 
         #Speed of playback
         self.speed=IntVar()
         self.speed.set(0)
         self.Speed_S = Scale(self.canvas_buttons, label=self.Messages["Control10"], variable=self.speed, from_=-10, to=100, orient=HORIZONTAL, command=self.change_speed, **Color_settings.My_colors.Scale_Base)
-        self.Speed_S.grid(row=0, column=9, sticky="we")
+        self.Speed_S.grid(row=0, column=9, rowspan=2, sticky="nswe")
 
         if self.Vid.Frame_rate[1] < 1:
             self.Speed_S.config(fg=Color_settings.My_colors.list_colors["Fg_not_valide"])
@@ -107,6 +128,8 @@ class Lecteur(Frame):
 
         self.ratio = 1#How much do we zoom in
         self.ZinSQ = [-1, ["NA", "NA"]]#used to zoom in a particular area
+
+
 
     def update_ratio(self, *args):
         '''Calculate the ratio between the original size of the video and the displayed image'''
@@ -161,38 +184,47 @@ class Lecteur(Frame):
         else:
             self.play()
 
-    def back1(self, *arg):
+    def back1(self, event=None, *arg):
         '''move one frame backward'''
-        if self.Scrollbar.active_pos>0 and (self.ecart==0 or (self.ecart>0 and self.Scrollbar.active_pos>self.Vid.Cropped[1][0]/self.one_every-self.ecart)) :
-            self.Scrollbar.active_pos=self.Scrollbar.active_pos-1
-            self.Scrollbar.refresh()
+        if event is None or not bool(event.state & 0x1):
+            if self.Scrollbar.active_pos>0 and (self.ecart==0 or (self.ecart>0 and self.Scrollbar.active_pos>self.Vid.Cropped[1][0]/self.one_every-self.ecart)) :
+                self.Scrollbar.active_pos=self.Scrollbar.active_pos-1
+                self.Scrollbar.refresh()
 
-            #If the video os made of several videos
-            if self.Vid.Fusion[self.current_part][0]>(self.Scrollbar.active_pos * self.one_every):
-                self.current_part-=1
-                self.capture = VL.Video_Loader(self.Vid, self.Vid.Fusion[self.current_part][1], not self.show_whole_frame)
+                #If the video os made of several videos
+                if self.Vid.Fusion[self.current_part][0]>(self.Scrollbar.active_pos * self.one_every + 1):
+                    self.current_part-=1
+                    self.capture = VL.Video_Loader(self.Vid, self.Vid.Fusion[self.current_part][1], not self.show_whole_frame)
 
-            TMP_image_to_show = self.capture[int(self.Scrollbar.active_pos*self.one_every)-self.Vid.Fusion[self.current_part][0]]
-            self.parent.modif_image(TMP_image_to_show)
+                TMP_image_to_show = self.capture[int(self.Scrollbar.active_pos*self.one_every)-self.Vid.Fusion[self.current_part][0]]
+                self.parent.modif_image(TMP_image_to_show)
 
 
     def move1(self, event=None, nb_fr=1, aff=True, begin=0, select=False, *arg):
         '''move one frame forward'''
-        if self.Scrollbar.active_pos<(self.Vid.Frame_nb[1]-nb_fr) and (self.ecart==0 or (self.ecart > 0 and self.Scrollbar.active_pos<=(self.Vid.Cropped[1][1]/self.one_every) + self.ecart -nb_fr)):
-            self.Scrollbar.active_pos+=nb_fr
-            self.Scrollbar.refresh()
+        if event is None or not bool(event.state & 0x1):
+            if self.Scrollbar.active_pos<(self.Vid.Frame_nb[1]-nb_fr) and (self.ecart==0 or (self.ecart > 0 and self.Scrollbar.active_pos<=(self.Vid.Cropped[1][1]/self.one_every) + self.ecart -nb_fr)):
+                self.Scrollbar.active_pos+=nb_fr
+                self.Scrollbar.refresh()
 
-            if (self.Scrollbar.active_pos*self.one_every)-self.Vid.Fusion[self.current_part][0]<len(self.capture):
-                TMP_image_to_show = self.capture[int(self.Scrollbar.active_pos*self.one_every)-self.Vid.Fusion[self.current_part][0]]
+                if (self.Scrollbar.active_pos*self.one_every)-self.Vid.Fusion[self.current_part][0]<len(self.capture):
+                    TMP_image_to_show = self.capture[round(self.Scrollbar.active_pos*self.one_every) -self.Vid.Fusion[self.current_part][0]]
 
-            else:
-                self.current_part += 1
-                self.capture = VL.Video_Loader(self.Vid, self.Vid.Fusion[self.current_part][1], not self.show_whole_frame)
-                TMP_image_to_show = self.capture[int(self.Scrollbar.active_pos * self.one_every) - self.Vid.Fusion[self.current_part][0]]
+                else:
+                    self.current_part += 1
+                    self.capture = VL.Video_Loader(self.Vid, self.Vid.Fusion[self.current_part][1], not self.show_whole_frame)
+                    TMP_image_to_show = self.capture[round(self.Scrollbar.active_pos * self.one_every)- self.Vid.Fusion[self.current_part][0]]
 
-            if select:# Only for view and correct tracks
-                self.parent.selected_rows=list(range(begin,self.Scrollbar.active_pos-self.to_sub+1))
-            return(self.parent.modif_image(TMP_image_to_show, aff=aff))
+                if select:# Only for view and correct tracks
+                    self.parent.selected_rows=list(range(begin,self.Scrollbar.active_pos-self.to_sub+1))
+
+                try:
+                    if self.parent.clicked:
+                        self.callback_move(self.last_event_move)
+                except:
+                    pass
+
+                return(self.parent.modif_image(TMP_image_to_show, aff=aff))
 
     def play(self, select=False, begin=0):
         # Within check that we are not outside of the video
@@ -252,12 +284,12 @@ class Lecteur(Frame):
         This fonction is calling another fonction that will apply the mandatory changes to the image (all kind of modifications: draw the trajectories, grayscaled, add the mask, etc).
         This second fonction is a method of the object containing this Video Reader.'''
         Which_part=0
-        if len(self.Vid.Fusion)>1:#If videos were concatenated, wecdetermine which segment of the video we are interested in
+        if len(self.Vid.Fusion)>1:#If videos were concatenated, we determine which segment of the video we are interested in
             Which_part = [index for index, Fu_inf in enumerate(self.Vid.Fusion) if Fu_inf[0] <= (frame * self.one_every)][-1]#Determine in which segment of the video is the frame to be display
 
         if first:#If it is the first time the reader display a frame
             self.capture=VL.Video_Loader(self.Vid, self.Vid.Fusion[Which_part][1], not self.show_whole_frame)
-            self.Prem_image_to_show = self.capture[int(frame * self.one_every) - self.Vid.Fusion[Which_part][0]]
+            self.Prem_image_to_show = self.capture[int(frame * self.one_every)+1 - self.Vid.Fusion[Which_part][0]]
             #We calculate the average pixel values (in grayscaled) and the value range for potential future light correction.
             #If there is no background, we use the first frame as a reference frame
             #If there is a background, we use the background as reference frame
@@ -279,17 +311,22 @@ class Lecteur(Frame):
                 TMP_image_to_show = np.copy(self.Prem_image_to_show)
                 self.last_img=TMP_image_to_show
 
+
         else:
             if Which_part!=self.current_part:#If we are changing from one video segment to another (concatenated videos)
                 del self.capture
                 self.capture = VL.Video_Loader(self.Vid, self.Vid.Fusion[Which_part][1], not self.show_whole_frame)
 
-            TMP_image_to_show = self.capture[int(frame * self.one_every) - self.Vid.Fusion[Which_part][0]]
+            TMP_image_to_show = self.capture[round(frame * self.one_every) - self.Vid.Fusion[Which_part][0]]
 
             if not return_img:
                 self.parent.modif_image(TMP_image_to_show, actual_pos=actual_pos)
 
         self.current_part = Which_part
+
+        #print("Video:"+str(self.Vid.Fusion[Which_part][1])+" Frame:"+str(round(frame * self.one_every) - self.Vid.Fusion[Which_part][0]))
+
+
         if return_img:
             return(TMP_image_to_show)
 
@@ -331,13 +368,21 @@ class Lecteur(Frame):
 
             elif event.x>=0 and event.x<=self.Size[1] and event.y>=0 and event.y<=self.Size[0] and self.ZinSQ[1][0]>=0 and self.ZinSQ[1][0]<=self.Size[1] and self.ZinSQ[1][1]>=0 and self.ZinSQ[1][1]<=self.Size[0]:
                 zoom_sq = [min(self.ZinSQ[1][0], event.x), min(self.ZinSQ[1][1], event.y) , max(self.ZinSQ[1][0], event.x), max(self.ZinSQ[1][1], event.y)]
-                if (zoom_sq[2] - zoom_sq[0]) > 50 and (zoom_sq[3] - zoom_sq[1])>50:
-                    self.zoom_sq=zoom_sq
-                    self.update_ratio()
-                    self.parent.modif_image(self.parent.last_empty)
+                if not self.no_zoom:
+                    if (zoom_sq[2] - zoom_sq[0]) > 50 and (zoom_sq[3] - zoom_sq[1])>50:
+                        self.zoom_sq=zoom_sq
+                        self.update_ratio()
+                        self.parent.modif_image(self.parent.last_empty)
+                else:
+                    try:
+                        self.parent.select_no_zoom(zoom_sq)
+                    except:
+                        pass
+
                 self.ZinSQ = [-1, ["NA", "NA"]]
 
             self.canvas_video.delete("Rect")
+
 
 
     def Sq_Zoom_beg(self, event):
@@ -346,18 +391,48 @@ class Lecteur(Frame):
         self.ZinSQ=[0,[event_t_x,event_t_y],[event.x,event.y]]
         self.canvas_video.delete("Rect")
 
+
+    def show_coos(self, x_coos, y_coos):
+        if not self.show_cropped:
+            x_coos=x_coos-self.parent.CSp[1]
+            y_coos = y_coos - self.parent.CSp[0]
+
+        if self.Vid.Scale[0] != 1:
+            x_show = "X = " + str(round(x_coos)) + "px | " + str(round(x_coos / self.Vid.Scale[0], 2)) + self.Vid.Scale[1]
+            y_show = "Y = " + str(round(y_coos)) + "px | " + str(round(y_coos / self.Vid.Scale[0], 2)) + self.Vid.Scale[1]
+        else:
+            x_show = "X = " + str(round(x_coos)) + "px"
+            y_show = "Y = " + str(round(y_coos)) + "px"
+
+
+        if self.point_of_interest[0]>0 and self.point_of_interest[1]>0:
+            if not self.show_cropped:
+                x_show= x_show + "   Xpt = " + str(round(self.point_of_interest[0]-self.parent.CSp[1],2))
+                y_show = y_show + "   Ypt = " + str(round(self.point_of_interest[1] - self.parent.CSp[0], 2))
+            else:
+                x_show=x_show+ "   Xpt = " + str(round(self.point_of_interest[0],2))
+                y_show = y_show + "   Ypt = " + str(round(self.point_of_interest[1], 2))
+
+        self.x_coos.config(text=x_show)
+        self.y_coos.config(text=y_show)
+
     def Sq_Zoom_mov(self,event):
         self.canvas_video.delete("Rect")
 
         event_t_x = int( self.ratio * (event.x - (self.canvas_video.winfo_width()-self.shape[1])/2)) + self.zoom_sq[0]
         event_t_y = int( self.ratio * (event.y - (self.canvas_video.winfo_height()-self.shape[0])/2)) + self.zoom_sq[1]
-
+        self.show_coos(event_t_x,event_t_y)
         zoom_sq = [min(self.ZinSQ[1][0], event_t_x), min(self.ZinSQ[1][1], event_t_y), max(self.ZinSQ[1][0], event_t_x),max(self.ZinSQ[1][1], event_t_y)]
-        if (zoom_sq[2] - zoom_sq[0]) > 50 and (zoom_sq[3] - zoom_sq[1])>50 and event_t_x>=0 and event_t_x<=self.Size[1] and event_t_y>=0 and event_t_y<=self.Size[0] and self.ZinSQ[1][0]>=0 and self.ZinSQ[1][0]<=self.Size[1] and self.ZinSQ[1][1]>=0 and self.ZinSQ[1][1]<=self.Size[0]:
-            self.canvas_video.create_rectangle(self.ZinSQ[2][0], self.ZinSQ[2][1], event.x, event.y, outline="white", tags="Rect")
+        if not self.no_zoom:
+            colors = ["white","red","black"]
         else:
-            self.canvas_video.create_rectangle(self.ZinSQ[2][0], self.ZinSQ[2][1], event.x, event.y, outline="red", tags="Rect")
-        self.canvas_video.create_rectangle(self.ZinSQ[2][0],self.ZinSQ[2][1],event.x,event.y, dash=(3,3), outline="black", tags="Rect")
+            colors = ["green","green","black"]
+
+        if (zoom_sq[2] - zoom_sq[0]) > 50 and (zoom_sq[3] - zoom_sq[1])>50 and event_t_x>=0 and event_t_x<=self.Size[1] and event_t_y>=0 and event_t_y<=self.Size[0] and self.ZinSQ[1][0]>=0 and self.ZinSQ[1][0]<=self.Size[1] and self.ZinSQ[1][1]>=0 and self.ZinSQ[1][1]<=self.Size[0]:
+            self.canvas_video.create_rectangle(self.ZinSQ[2][0], self.ZinSQ[2][1], event.x, event.y, outline=colors[0], tags="Rect")
+        else:
+            self.canvas_video.create_rectangle(self.ZinSQ[2][0], self.ZinSQ[2][1], event.x, event.y, outline=colors[1], tags="Rect")
+        self.canvas_video.create_rectangle(self.ZinSQ[2][0],self.ZinSQ[2][1],event.x,event.y, dash=(3,3), outline=colors[2], tags="Rect")
 
         if self.ZinSQ[0]>=0:
             self.ZinSQ[0]+=1
@@ -369,11 +444,14 @@ class Lecteur(Frame):
         self.bind_all("<Right>", self.move1)
         self.bind_all("<Left>", self.back1)
         self.bind_all("<space>", self.playbacks)
+        self.bind_all("<Control-p>", self.show_pt_interest)
+
         self.canvas_video.bind("<Control-B1-Motion>", self.Sq_Zoom_mov)
         self.canvas_video.bind("<Control-B1-ButtonRelease>", lambda x: self.Zoom(event=x,Zin=True))
         self.canvas_video.bind("<Control-B3-ButtonRelease>", lambda x: self.Zoom(event=x,Zin=False))
         self.canvas_video.bind("<Configure>", lambda x: self.afficher_img(self.last_img))
         self.Frame_scrollbar.bind("<Configure>", self.Scrollbar.refresh)
+
 
         self.canvas_video.bind("<Shift-B1-Motion>", lambda x: self.callback_move(event=x,Shift=True))
         self.canvas_video.bind("<B1-Motion>", self.callback_move)
@@ -382,12 +460,21 @@ class Lecteur(Frame):
         self.canvas_video.bind("<Button-3>", self.right_click)
         self.canvas_video.bind("<Button-1>", self.callback)
 
+    def show_pt_interest(self, event):
+        if self.point_of_interest[0]<0 or self.point_of_interest[1]<0:
+            self.point_of_interest=[0,0]
+        else:
+            self.point_of_interest = [-1000, -1000]
+        self.afficher_img(self.last_img)
+
+
     def unbindings(self):
         '''Remove all the bindings'''
         try:
             self.unbind_all("<Right>")
             self.unbind_all("<Left>")
             self.unbind_all("<space>")
+            self.unbind_all("<Control-p>")
             self.Frame_scrollbar.unbind("<Configure>")
 
             self.canvas_video.unbind("<Control-1>")
@@ -407,8 +494,9 @@ class Lecteur(Frame):
         try:
             event.x = int( self.ratio * (event.x - (self.canvas_video.winfo_width()-self.shape[1])/2)) + self.zoom_sq[0]
             event.y = int( self.ratio * (event.y - (self.canvas_video.winfo_height()-self.shape[0])/2)) + self.zoom_sq[1]
+            self.show_coos(event.x,event.y)
             self.parent.mouse_over([event.x,event.y])
-        except:
+        except:#IF teh parent does not have a mouse_over function
             pass
 
     def callback(self, event):
@@ -420,11 +508,42 @@ class Lecteur(Frame):
             event.x = int( self.ratio * (event.x - (self.canvas_video.winfo_width()-self.shape[1])/2)) + self.zoom_sq[0]
             event.y = int( self.ratio * (event.y - (self.canvas_video.winfo_height()-self.shape[0])/2)) + self.zoom_sq[1]
             self.parent.pressed_can((event.x,event.y), event)
+            dist = math.sqrt(
+                math.pow(self.point_of_interest[0] - event.x, 2) + math.pow(self.point_of_interest[1] - event.y, 2))
+            if dist < 30*self.ratio:
+                self.moving_pt_interest = True
 
-    def callback_move(self, event, Shift=False, *args):
+
+    def callback_move(self, event=None, Shift=False, *args):
         '''The info about where the frame was clicked is sent to the Video Reader container'''
+        self.last_event_move=copy.copy(event)
         event.x = self.ratio * (event.x - (self.canvas_video.winfo_width()-self.shape[1])/2) + self.zoom_sq[0]
         event.y = self.ratio * (event.y - (self.canvas_video.winfo_height()-self.shape[0])/2) + self.zoom_sq[1]
+
+
+        if not self.show_cropped:
+            tmp_shape=self.Vid.or_shape
+        else:
+            tmp_shape=self.Vid.shape
+
+        if self.moving_pt_interest:
+            new_x=event.x
+            new_y=event.y
+            if event.x<0:
+                new_x=0
+            elif event.x>tmp_shape[1]:
+                new_x=tmp_shape[1]
+
+            if event.y<0:
+                new_y=0
+            elif event.y>tmp_shape[0]:
+                new_y=tmp_shape[0]
+
+            self.point_of_interest = [int(new_x), int(new_y)]
+            self.update_image(self.Scrollbar.active_pos)
+
+
+        self.show_coos(event.x,event.y)
 
         if event.x<0:
             event.x=0
@@ -453,11 +572,13 @@ class Lecteur(Frame):
         event.x = self.ratio * (event.x - (self.canvas_video.winfo_width()-self.shape[1])/2) + self.zoom_sq[0]
         event.y = self.ratio * (event.y - (self.canvas_video.winfo_height()-self.shape[0])/2) + self.zoom_sq[1]
         self.parent.released_can((event.x,event.y))
+        self.moving_pt_interest=False
 
-    def afficher_img(self, img, locked=False):
+
+    def afficher_img(self, img, locked=False, return_img=False, Trans=False):
         '''Once the image is adapted by the video container, it is here resized and displayed'''
         self.update_ratio()
-        self.last_img=img
+        self.last_img=img.copy()
         if self.first:
             self.first=False
 
@@ -465,6 +586,10 @@ class Lecteur(Frame):
             self.Size = img.shape
             self.zoom_sq = [0, 0, self.Size[1], self.Size[0]]  # If not, we show the cropped frames
 
+        img = cv2.circle(img, self.point_of_interest, int(max(1, 3 * self.ratio)),
+                                       (150, 255, 0), -1)
+        img = cv2.circle(img, self.point_of_interest, int(max(1, 30 * self.ratio)),
+                                       (150, 255, 0), int(max(1, 2 * self.ratio)))
 
         image_to_show2 = img[self.zoom_sq[1]:self.zoom_sq[3], self.zoom_sq[0]:self.zoom_sq[2]]
         width=int((self.zoom_sq[2]-self.zoom_sq[0])/self.ratio)
@@ -479,6 +604,12 @@ class Lecteur(Frame):
         else:
             img2=TMP_image_to_show2
 
+        if hasattr(self.parent, 'draw_over'):
+            if not Trans:
+                self.parent.draw_over(img2, -self.zoom_sq[0],-self.zoom_sq[1],self.ratio)
+            else:
+                self.parent.draw_over(img2, -self.zoom_sq[0], -self.zoom_sq[1], self.ratio, Trans=Trans)
+
         if locked:
             fontpath = os.path.join(".", "simsun.ttc")
             font = ImageFont.truetype(fontpath, 20)
@@ -489,12 +620,26 @@ class Lecteur(Frame):
             draw.text((TMP_image_to_show2.shape[1] - 40,TMP_image_to_show2.shape[0] - 25), "[○]", font=font, fill=(0, 0, 0, 0))
             img2 = np.array(first_im)
 
+        if self.no_zoom:
+            fontpath = os.path.join(".", "simsun.ttc")
+            font = ImageFont.truetype(fontpath, 20)
+            stroke_width = 2
+            first_im = Image.fromarray(img2)
+            draw = ImageDraw.Draw(first_im)
+            draw.text((TMP_image_to_show2.shape[1] - 40, TMP_image_to_show2.shape[0] - 50), "[Х]", font=font, fill=(255, 255, 255, 0), stroke_width=stroke_width)
+            draw.text((TMP_image_to_show2.shape[1] - 40, TMP_image_to_show2.shape[0] - 50), "[Х]", font=font, fill=(0, 0, 0, 0))
+            img2 = np.array(first_im)
 
-        self.image_to_show3 = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(img2))
-        self.can_import = self.canvas_video.create_image((self.canvas_video.winfo_width()-self.shape[1])/2, (self.canvas_video.winfo_height()-self.shape[0])/2, image=self.image_to_show3, anchor=NW)
-        self.canvas_video.config(height=self.shape[1],width=self.shape[0])
-        self.canvas_video.itemconfig(self.can_import, image=self.image_to_show3)
-        self.update_idletasks()
+        if return_img:
+            return(img2)
+
+        else:
+            self.image_to_show3 = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(img2))
+            self.can_import = self.canvas_video.create_image((self.canvas_video.winfo_width()-self.shape[1])/2, (self.canvas_video.winfo_height()-self.shape[0])/2, image=self.image_to_show3, anchor=NW)
+            self.canvas_video.config(height=self.shape[1],width=self.shape[0])
+            self.canvas_video.itemconfig(self.can_import, image=self.image_to_show3)
+            self.update_idletasks()
+
 
     def proper_close(self):
         '''Destruction of the Video Reader'''

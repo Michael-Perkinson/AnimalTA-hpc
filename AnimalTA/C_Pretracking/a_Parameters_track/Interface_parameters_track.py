@@ -2,11 +2,12 @@ import time
 from tkinter import *
 import numpy as np
 from AnimalTA.C_Pretracking.a_Parameters_track import Interface_nb_per_Ar, Draw_entrance, Interface_supp_back_params
-from AnimalTA.A_General_tools import Class_change_vid_menu, Class_Lecteur, Function_draw_mask as Dr, UserMessages, \
+from AnimalTA.A_General_tools import Class_change_vid_menu, Class_Lecteur, Function_draw_arenas as Dr, UserMessages, \
     User_help, Class_stabilise, Color_settings
 from AnimalTA.G_Specials import Test_specific_parts_track
 
 from functools import partial
+import math
 import math
 import cv2
 
@@ -14,7 +15,7 @@ import cv2
 class Param_definer(Frame):
     #This Frame show the video and how the tracking parameters are affecting it.
     #It allos user to modify these parameters according to teh videos
-    def __init__(self, parent, boss, main_frame, Video_file, portion=False, speed=0, **kwargs):
+    def __init__(self, parent, boss, main_frame, Video_file, portion=False, speed=0, ref_frame=None, **kwargs):
         Frame.__init__(self, parent, bd=5, **kwargs)
         self.parent=parent
         self.main_frame=main_frame
@@ -24,6 +25,12 @@ class Param_definer(Frame):
         self.portion = portion
         self.config(**Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
         self.cnts_entrance=self.Vid.Entrance#By defaults, there is no entrance area (known number of individuals)
+
+        if ref_frame is None:
+            self.First_frame = self.Vid.Cropped[1][0]
+        else:
+            self.First_frame = ref_frame
+
 
         if self.portion:
             Grid.columnconfigure(self.parent, 0, weight=1)
@@ -46,10 +53,10 @@ class Param_definer(Frame):
         except:
             self.correct_light = False
 
-        try:#This option was not present in the old version of AnimalTA, an exception is raised if we are working with old version files.
-            self.correct_flicker=self.Vid.Track[1][9]
-        except:
-            self.correct_flicker = False
+        # try:#This option was not present in the old version of AnimalTA, an exception is raised if we are working with old version files.
+        #     self.correct_flicker=self.Vid.Track[1][9]
+        # except:
+        #     self.correct_flicker = False
 
         self.var_color_mode=IntVar()
         self.var_color_mode.set(self.Vid.Track[1][10][0])
@@ -60,8 +67,12 @@ class Param_definer(Frame):
         else:
             self.Dynamical_back.set(0)
 
+
+
         self.thresh_value = StringVar()
         self.thresh_value.set(self.Vid.Track[1][0])
+        self.thresh_value_C = StringVar()
+        self.thresh_value_C.set(self.Vid.Track[1][11])
         self.erode_value = StringVar()
         self.erode_value.set(self.Vid.Track[1][1])
         self.dilate_value = StringVar()
@@ -78,27 +89,23 @@ class Param_definer(Frame):
 
         self.to_sub = round(((self.Vid.Cropped[1][0]) / self.one_every))
 
-        self.mask = Dr.draw_mask(self.Vid)
-        self.mask = Dr.draw_mask(self.Vid)
 
         #We look for the arenas
-        self.Arenas_with_holes, self.Arenas = Dr.exclude_inside(self.mask)
-        self.Arenas = Dr.Organise_Ars(self.Arenas)
-        self.Arenas_with_holes = Dr.Organise_Ars(self.Arenas)
+        self.mask=Dr.draw_mask(self.Vid,-1)
+        self.Arenas_with_holes = Dr.get_arenas(self.Vid)
+        self.Arenas = Dr.get_arenas(self.Vid)
 
         if self.Vid.Back[0]:
             self.Or_back=self.Vid.Back[1].copy()
 
-
-
         #We set here a maximum distance to avoid user to put too high distances
         if self.Vid.Scale[0]==0:
             self.distance_maximum=(max([self.Vid.shape[0],self.Vid.shape[1]])/2)
-            self.max_area=float(self.Vid.shape[0]*self.Vid.shape[1])/10
+            self.max_area=float(self.Vid.shape[0]*self.Vid.shape[1])/3
             self.units.set("px")
         else:
             self.distance_maximum = math.sqrt(self.Vid.shape[0]**2 + self.Vid.shape[1]**2)/float(self.Vid.Scale[0])
-            self.max_area=((self.Vid.shape[0]/float(self.Vid.Scale[0])) * (self.Vid.shape[1]/float(self.Vid.Scale[0])))/10
+            self.max_area=((self.Vid.shape[0]/float(self.Vid.Scale[0])) * (self.Vid.shape[1]/float(self.Vid.Scale[0])))/3
 
 
         # Name of the current video and possibility to chnage from one to the other:
@@ -232,6 +239,7 @@ class Param_definer(Frame):
         self.Button_grey.bind("<Leave>", self.HW.remove_tmp_message)
         Correct_light_vis.grid(sticky="w", row=0,column=0)
 
+        '''
         self.Button_flicker=Button(F_Corr, text=self.Messages["Param14"], command=partial(self.change_flicker_corr, change_track=on_value),**Color_settings.My_colors.Button_Base)
         if self.correct_flicker:
             self.Button_flicker.config(background=Color_settings.My_colors.list_colors["Validate"], fg=Color_settings.My_colors.list_colors["Fg_Validate"])
@@ -240,6 +248,7 @@ class Param_definer(Frame):
         self.Button_flicker.grid(sticky="snwe", row=0, column=2)
         self.Button_flicker.bind("<Enter>", partial(self.HW.change_tmp_message, self.Messages["Param17"]))
         self.Button_flicker.bind("<Leave>", self.HW.remove_tmp_message)
+        '''
 
         row_pos+=1
         on_value+=1
@@ -287,23 +296,26 @@ class Param_definer(Frame):
         self.F_Thresh.bind("<Leave>", self.HW.remove_tmp_message)
         Threshol_vis.grid(sticky="w", rowspan=2)
 
-        if self.Vid.Back[0] or self.Dynamical_back.get():
-            Thresh_scroll = Scale(self.F_Thresh, from_=0, to=255, variable=self.thresh_value, orient=HORIZONTAL,**Scale_cols[row_pos%2])
-        else:
-            if (int(self.thresh_value.get()) % 2) == 0:
-                self.thresh_value.set(int(self.thresh_value.get())+1)
-            Thresh_scroll = Scale(self.F_Thresh, from_=2, to=1000, resolution=2, variable=self.thresh_value, orient=HORIZONTAL, **Scale_cols[row_pos%2])
-        Thresh_scroll.grid(row=1,column=1, sticky="NSEW")
+
+        self.Thresh_scroll = Scale(self.F_Thresh, from_=0, to=255, variable=self.thresh_value, orient=HORIZONTAL,**Scale_cols[row_pos%2])
+        self.Thresh_scroll2 = Scale(self.F_Thresh, from_=1, to=50, resolution=1, variable=self.thresh_value_C, orient=HORIZONTAL, **Scale_cols[row_pos % 2])
+        self.Thresh_scroll.grid(row=1,column=1, sticky="NSEW")
 
         verif_E_tresh = (self.register(self.verif_E_tresh_fun), '%P', '%V')
         Thresh_entry=Entry(self.F_Thresh,textvariable=self.thresh_value, width=10, validate="key", validatecommand=verif_E_tresh, **Entry_cols[row_pos%2])
-        Thresh_entry.grid(row=1,column=2, sticky="se")
+        Thresh_entry.grid(row=2,column=1, sticky="se")
+        dict_traces["thresh"] = on_value
 
-        dict_traces["thresh"]=on_value
+        verif_E_tresh_C = (self.register(self.verif_E_tresh_C_fun), '%P', '%V')
+        self.Thresh_entry_C=Entry(self.F_Thresh,textvariable=self.thresh_value_C, width=10, validate="key", validatecommand=verif_E_tresh_C, **Entry_cols[row_pos%2])
+
+        dict_traces["thresh_C"]=on_value
 
         self.F_Thresh.grid_columnconfigure(0, weight=1)
         self.F_Thresh.grid_columnconfigure(1, weight=6)
         self.F_Thresh.grid_columnconfigure(2, weight=1)
+        self.F_Thresh.grid_rowconfigure(0, weight=1)
+        self.F_Thresh.grid_rowconfigure(1, weight=1)
 
         row_pos+=1
         on_value += 1
@@ -499,6 +511,8 @@ class Param_definer(Frame):
         self.target_type.set(self.Vid.Track[1][10][1])
         self.rel_back=IntVar()
         self.rel_back.set(self.Vid.Track[1][10][2])
+        self.dynamical_hist = self.Vid.Track[1][10][3]
+
         self.min_area_value.set(self.Vid.Track[1][3][0])
         self.max_area_value.set(self.Vid.Track[1][3][1])
         self.min_compact_value.set(self.Vid.Track[1][4][0])
@@ -512,10 +526,11 @@ class Param_definer(Frame):
 
         self.B_Validate_NContinue=Button(self.canvas_options, text=self.Messages["Validate_NC"], **Color_settings.My_colors.Button_Base, command=lambda: self.Validate(follow=True))
         self.B_Validate_NContinue.config(background=Color_settings.My_colors.list_colors["Validate"], fg=Color_settings.My_colors.list_colors["Fg_Validate"])
-        self.B_Validate_NContinue.grid(row=14,column=0, sticky="ews")
+        if not self.portion:
+            self.B_Validate_NContinue.grid(row=14,column=0, sticky="ews")
 
         # Show video and time-bar
-        self.Vid_Lecteur = Class_Lecteur.Lecteur(self, self.Vid, ecart=0)
+        self.Vid_Lecteur = Class_Lecteur.Lecteur(self, self.Vid, ecart=0, First_frame=self.First_frame)
         self.Vid_Lecteur.grid(row=1, column=0, sticky="nsew")
         self.Vid_Lecteur.speed.set(speed)
         self.Vid_Lecteur.change_speed()
@@ -531,6 +546,7 @@ class Param_definer(Frame):
         self.erode_value.trace("w", lambda name, index, mode, erode_value=self.erode_value, type=2: self.changed_val(self.erode_value.get(), type=dict_traces["erode"]))
         self.dilate_value.trace("w", lambda name, index, mode, dilate_value=self.dilate_value, type=2: self.changed_val(self.dilate_value.get(), type=dict_traces["dilate"]))
         self.thresh_value.trace("w", lambda name, index, mode, thresh_value=self.thresh_value, type=2: self.changed_val(self.thresh_value.get(), type=dict_traces["thresh"]))
+        self.thresh_value_C.trace("w", lambda name, index, mode, thresh_value_C=self.thresh_value_C, type=2: self.changed_val(self.thresh_value_C.get(), type=dict_traces["thresh_C"]))
         self.distance_max_value.trace("w", lambda name, index, mode, distance_max_value=self.distance_max_value, type=2: self.changed_val(self.distance_max_value.get(), type=dict_traces["distance"]))
         self.max_area_value.trace("w", lambda name, index, mode, max_area_value=self.max_area_value, type=5: self.changed_val(self.max_area_value.get(), type=dict_traces["Area"]))
         self.min_area_value.trace("w", lambda name, index, mode, min_area_value=self.min_area_value, type=5: self.changed_val(self.min_area_value.get(), type=dict_traces["Area"]))
@@ -539,6 +555,25 @@ class Param_definer(Frame):
         self.bind_children(self)
         self.bind_children(self.canvas_options)
         self.Vid_Lecteur.update_image(self.Vid_Lecteur.to_sub)
+
+        self.update_thresh_scales()
+
+    def update_thresh_scales(self):
+        if self.Vid.Back[0]==1 or self.Dynamical_back.get():
+            self.Thresh_scroll.config(to=255, resolution=1)
+            if (int(self.thresh_value.get()) % 2) == 0:
+                self.thresh_value.set(int(self.thresh_value.get()) + 1)
+            self.Thresh_scroll2.grid_forget()
+            self.Thresh_entry_C.grid_forget()
+
+        else:
+            self.Thresh_scroll.config(to=1000, resolution=2)
+            if (int(self.thresh_value.get()) % 2) == 1:
+                self.thresh_value.set(int(self.thresh_value.get()) + 1)
+            self.Thresh_scroll2.grid(row=1, column=2, sticky="NSEW")
+            self.Thresh_entry_C.grid(row=2, column=2, sticky="se")
+
+        self.F_Thresh.update()
 
     def Test_specific(self):
         Test_specific_parts_track.collect_silhouettes(self.Vid)
@@ -596,14 +631,14 @@ class Param_definer(Frame):
             self.Button_grey.config(**Color_settings.My_colors.Button_Base)
         self.modif_image(change_track=change_track)
 
-    def change_flicker_corr(self, change_track=None):
-        #Change the state of lightning correction from true to false and modify button accordingly
-        self.correct_flicker = not self.correct_flicker
-        if self.correct_flicker:
-            self.Button_flicker.config(background=Color_settings.My_colors.list_colors["Validate"],fg=Color_settings.My_colors.list_colors["Fg_Validate"])
-        else:
-            self.Button_flicker.config(**Color_settings.My_colors.Button_Base)
-        self.modif_image(change_track=change_track)
+    # def change_flicker_corr(self, change_track=None):
+    #     #Change the state of lightning correction from true to false and modify button accordingly
+    #     self.correct_flicker = not self.correct_flicker
+    #     if self.correct_flicker:
+    #         self.Button_flicker.config(background=Color_settings.My_colors.list_colors["Validate"],fg=Color_settings.My_colors.list_colors["Fg_Validate"])
+    #     else:
+    #         self.Button_flicker.config(**Color_settings.My_colors.Button_Base)
+    #     self.modif_image(change_track=change_track)
 
     def changed_val(self, new_val, type):
         #If one of the values is modified by user, we check the value is not null and apply the modifications
@@ -611,6 +646,17 @@ class Param_definer(Frame):
             self.modif_image(self.last_empty, change_track=type)
 
     def verif_E_tresh_fun(self, value, method):
+        #We only allow user to write numerical values
+        if value=="" and method=="key":
+            return True
+        else:
+            try:
+                int(value)
+                return True
+            except:
+                return False
+
+    def verif_E_tresh_C_fun(self, value, method):
         #We only allow user to write numerical values
         if value=="" and method=="key":
             return True
@@ -635,6 +681,8 @@ class Param_definer(Frame):
         else:
             return False
 
+
+
     def change_nb_ar(self):
         #This will open a small window in which the user can choose the number of expected targets in each arena
         newWindow = Toplevel(self.parent.master)
@@ -657,6 +705,7 @@ class Param_definer(Frame):
             self.Vid_Lecteur.focus_set()
 
     def modif_image(self, img=[], affi=True, change_track=None, **arg):
+        self.update_thresh_scales()
         #Change the original image accordingly to the parameters defined by user
         if change_track!=None:
             self.CheckVar.set(change_track)
@@ -696,14 +745,19 @@ class Param_definer(Frame):
             if self.CheckVar.get()>pos:
                 pos+=1
                 #Correct flicker
-                if self.correct_flicker and self.Scrollbar.active_pos > round(self.Vid.Cropped[1][0]/self.one_every):
-                    diff=int(self.Scrollbar.active_pos - round(self.Vid.Cropped[1][0]/self.one_every))
-                    for elem in range(self.Scrollbar.active_pos-min(2,diff),self.Scrollbar.active_pos):
-                        if self.var_color_mode.get() == 0:
-                            last_img=cv2.cvtColor(self.Vid_Lecteur.update_image(elem,return_img=True),cv2.COLOR_BGR2GRAY)
-                        else:
-                            last_img=self.Vid_Lecteur.update_image(elem,return_img=True)
-                        TMP_image_to_show2 = cv2.addWeighted(last_img, 0.5, TMP_image_to_show2, 1 - 0.5, 0)
+                # if self.correct_flicker and self.Scrollbar.active_pos > round(self.Vid.Cropped[1][0]/self.one_every):
+                #     diff=int(self.Scrollbar.active_pos - round(self.Vid.Cropped[1][0]/self.one_every))
+                #     for elem in range(self.Scrollbar.active_pos-min(2,diff),self.Scrollbar.active_pos):
+                #         last_img=self.Vid_Lecteur.update_image(elem,return_img=True)
+                #         if self.Vid.Stab[0]:
+                #             last_img = Class_stabilise.find_best_position(Vid=self.Vid,
+                #                                                      Prem_Im=self.Vid_Lecteur.Prem_image_to_show,
+                #                                                      frame=last_img, show=False, prev_pts=self.Vid.Stab[1])
+                #
+                #         if self.var_color_mode.get() == 0:
+                #             last_img=cv2.cvtColor(last_img,cv2.COLOR_BGR2GRAY)
+                #
+                #         TMP_image_to_show2 = cv2.addWeighted(last_img, 0.5, TMP_image_to_show2, 1 - 0.5, 0)
 
                 #Correct lighting
                 if self.correct_light:
@@ -725,15 +779,17 @@ class Param_definer(Frame):
                     pos+=1
                     #Show background subtraction
                     if self.Dynamical_back.get() and not self.Vid.Back[0]==1:
-                        prog_back = cv2.createBackgroundSubtractorMOG2(history=1000,
+
+                        prog_back = cv2.createBackgroundSubtractorMOG2(history=int(self.dynamical_hist*self.Vid.Frame_rate[1]),
                                                                        varThreshold=int(self.thresh_value.get()),
                                                                        detectShadows=False)
                         # Create a background based on 10 frames:
                         frames = []
-                        nb_passed = min(self.Scrollbar.active_pos, 1000)
+                        nb_passed = min(self.Scrollbar.active_pos - self.to_sub, int(self.dynamical_hist*self.Vid.Frame_rate[1]))
                         for imgID in range(nb_passed, 1, min([-1, -int(nb_passed / 5)])):
+
                             batch_img = self.Vid_Lecteur.update_image(
-                                frame=self.Scrollbar.active_pos - self.to_sub - imgID, first=False, actual_pos=None,
+                                frame=self.Scrollbar.active_pos - imgID, first=False, actual_pos=None,
                                 return_img=True)
 
                             if self.Vid.Stab[0]:
@@ -746,15 +802,15 @@ class Param_definer(Frame):
                                 batch_img = cv2.cvtColor(batch_img, cv2.COLOR_BGR2GRAY)
 
                             # Correct flicker
-                            if self.correct_flicker and self.Scrollbar.active_pos + imgID > round(
-                                    self.Vid.Cropped[1][0] / self.one_every):
-                                diff = int(
-                                    self.Scrollbar.active_pos + imgID - round(self.Vid.Cropped[1][0] / self.one_every))
-                                for elem in range(self.Scrollbar.active_pos + imgID - min(2, diff),
-                                                  self.Scrollbar.active_pos + imgID):
-                                    last_img = cv2.cvtColor(self.Vid_Lecteur.update_image(elem, return_img=True),
-                                                            cv2.COLOR_BGR2GRAY)
-                                    batch_img = cv2.addWeighted(last_img, 0.5, batch_img, 1 - 0.5, 0)
+                            # if self.correct_flicker and self.Scrollbar.active_pos + imgID > round(
+                            #         self.Vid.Cropped[1][0] / self.one_every):
+                            #     diff = int(
+                            #         self.Scrollbar.active_pos + imgID - round(self.Vid.Cropped[1][0] / self.one_every))
+                            #     for elem in range(self.Scrollbar.active_pos + imgID - min(2, diff),
+                            #                       self.Scrollbar.active_pos + imgID):
+                            #         last_img = cv2.cvtColor(self.Vid_Lecteur.update_image(elem, return_img=True),
+                            #                                 cv2.COLOR_BGR2GRAY)
+                            #         batch_img = cv2.addWeighted(last_img, 0.5, batch_img, 1 - 0.5, 0)
 
                             if self.correct_light:
                                 grey = np.copy(batch_img)
@@ -804,7 +860,7 @@ class Param_definer(Frame):
                         elif not self.Dynamical_back.get():
                             if self.target_type.get()==2:
                                 TMP_image_to_show2=cv2.bitwise_not(TMP_image_to_show2)
-                            TMP_image_to_show2 = cv2.adaptiveThreshold(TMP_image_to_show2, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, int(self.thresh_value.get())+1,10)
+                            TMP_image_to_show2 = cv2.adaptiveThreshold(TMP_image_to_show2, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, int(self.thresh_value.get())+1,int(self.thresh_value_C.get()))
 
                         if self.Vid.Mask[0]:
                             TMP_image_to_show2 = cv2.bitwise_and(TMP_image_to_show2, TMP_image_to_show2, mask=self.mask)
@@ -909,6 +965,7 @@ class Param_definer(Frame):
         self.Vid.Track[1][4] = [0,0]
         self.Vid.Track[1][5] = float(self.distance_max_value.get())
         self.Vid.Track[1][6] = self.liste_ind_per_ar
+        self.Vid.Track[1][11] = int(self.thresh_value_C.get())
         self.Vid.Entrance=self.cnts_entrance
 
         try: #This is an option not present in old AnimalTA versions, this is to avoid error
@@ -921,15 +978,15 @@ class Param_definer(Frame):
         except:
             self.Vid.Track[1].append(self.Vid.Track[1][6][0]!=0)
 
-        try: #This is an option not present in old AnimalTA versions, this is to avoid error
-            self.Vid.Track[1][9] = self.correct_flicker
-        except:
-            self.Vid.Track[1].append(self.correct_flicker)
+        # try: #This is an option not present in old AnimalTA versions, this is to avoid error
+        #     self.Vid.Track[1][9] = self.correct_flicker
+        # except:
+        #     self.Vid.Track[1].append(self.correct_flicker)
 
         try:  # This is an option not present in old AnimalTA versions, this is to avoid error
-            self.Vid.Track[1][10] = [self.var_color_mode.get(),self.target_type.get(),self.rel_back.get()]
+            self.Vid.Track[1][10] = [self.var_color_mode.get(),self.target_type.get(),self.rel_back.get(), self.dynamical_hist]
         except:
-            self.Vid.Track[1].append([self.var_color_mode.get(),self.target_type.get(),self.rel_back.get()])
+            self.Vid.Track[1].append([self.var_color_mode.get(),self.target_type.get(),self.rel_back.get(), self.dynamical_hist])
 
         if follow and self.Vid != self.main_frame.liste_of_videos[-1]:
             for i in range(len(self.main_frame.liste_of_videos)):
@@ -952,6 +1009,8 @@ class Param_definer(Frame):
         if not self.portion:
             self.main_frame.update_projects()
             self.main_frame.return_main()
+            self.main_frame.selected_vid=self.Vid
+            self.main_frame.update_projects
         if self.portion:
             self.parent.destroy()
 

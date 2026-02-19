@@ -1,14 +1,15 @@
 from tkinter import *
 import os
 from AnimalTA.E_Post_tracking import Coos_loader_saver as CoosLS
-from AnimalTA.E_Post_tracking.b_Analyses import Functions_deformation, Functions_Analyses_Speed
-from AnimalTA.A_General_tools import Class_Lecteur, Function_draw_mask as Dr, UserMessages, Class_stabilise, Color_settings, Class_loading_Frame, Function_draw_mask, Interface_extend
+from AnimalTA.E_Post_tracking.b_Analyses import Functions_deformation, Functions_Analyses_Speed, Interface_heatmaps
+from AnimalTA.A_General_tools import Class_Lecteur, Function_draw_arenas as Dr, UserMessages, Class_stabilise, Color_settings, Class_loading_Frame, Function_draw_arenas, Interface_extend
 import numpy as np
 import cv2
 from scipy.signal import savgol_filter
 from tkinter import filedialog
 from PIL import ImageFont, ImageDraw, Image
 import pickle
+from tkinter import ttk
 
 class Lecteur(Frame):
     """This Frame allow the user to export a video that has been modified by AnimalTA.
@@ -33,6 +34,7 @@ class Lecteur(Frame):
         self.show_deform=False
         self.deformed = False
         self.smoothed=False
+        self.show_only_ar=False
         self.tail_size = DoubleVar(value=10)
         self.mask = Dr.draw_mask(Vid)
         self.kernel = np.ones((3, 3), np.uint8)
@@ -46,9 +48,7 @@ class Lecteur(Frame):
 
         self.grid(row=0, column=0, columnspan=2, rowspan=2, sticky="nsew")
 
-        mask = Function_draw_mask.draw_mask(self.Vid)
-        Arenas, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        self.Arenas = Function_draw_mask.Organise_Ars(Arenas)
+        self.Arenas = Function_draw_arenas.get_arenas(self.Vid)
 
         Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
         with open(Param_file, 'rb') as fp:
@@ -74,81 +74,100 @@ class Lecteur(Frame):
         self.Messages = UserMessages.Mess[self.Language.get()]
         f.close()
 
+
         Right_Frame=Frame(self, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
         Right_Frame.grid(row=0, column=1, sticky="nsew")
 
-        self.CheckVar=IntVar(value=0)
+
+        self.CheckVar=IntVar(value=1)
 
         if self.Vid.Back[0]:
             self.Or_back=self.Vid.Back[1].copy()
 
         #No modification except cropping
-        Only_cropped=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=0, text=self.Messages["Save_Vid1"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
-        Only_cropped.grid(row=2, sticky="w")
+        pos=0
+        No_image=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=pos, text="No image", command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
+        No_image.grid(row=pos+2, sticky="w")
         if auto and self.params_export["CheckVar"]>=0:
-            self.CheckVar.set(0)
+            self.CheckVar.set(pos)
+        pos+=1
+
+        Only_cropped=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=pos, text=self.Messages["Save_Vid1"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
+        Only_cropped.grid(row=pos+2, sticky="w")
+        if auto and self.params_export["CheckVar"]>=pos:
+            self.CheckVar.set(pos)
 
         #Stabilization
         if self.Vid.Stab[0]:
-            Stab=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=1, text=self.Messages["Save_Vid2"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
-            Stab.grid(row=3, sticky="w")
-            if auto and self.params_export["CheckVar"] >= 1:
-                self.CheckVar.set(1)
+            Stab=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=pos, text=self.Messages["Save_Vid2"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
+            Stab.grid(row=pos+2, sticky="w")
+            if auto and self.params_export["CheckVar"] >= pos:
+                self.CheckVar.set(pos)
+        pos+=1
 
         #Greyscaled
         if self.Vid.Track[1][10][0] == 0:
-            Grey=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=2, text=self.Messages["Track3"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
-            Grey.grid(row=4, sticky="w")
-            if auto and self.params_export["CheckVar"] >= 2:
-                self.CheckVar.set(2)
+            Grey=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=pos, text=self.Messages["Track3"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
+            Grey.grid(row=pos+2, sticky="w")
+            if auto and self.params_export["CheckVar"] >= pos:
+                self.CheckVar.set(pos)
+        pos+=1
 
         #Flicker correction
         if self.Vid.Track[1][9]:
-            Flicker_Corr=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=3, text=self.Messages["Param14"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
-            Flicker_Corr.grid(row=5, sticky="w")
-            if auto and self.params_export["CheckVar"] >= 3:
-                self.CheckVar.set(3)
+            Flicker_Corr=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=pos, text=self.Messages["Param14"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
+            Flicker_Corr.grid(row=pos+2, sticky="w")
+            if auto and self.params_export["CheckVar"] >= pos:
+                self.CheckVar.set(pos)
+        pos+=1
 
 
         #Light correction
         if self.Vid.Track[1][7]:
-            Light_Corr=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=4, text=self.Messages["Param10"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
-            Light_Corr.grid(row=6, sticky="w")
-            if auto and self.params_export["CheckVar"] >= 4:
-                self.CheckVar.set(4)
+            Light_Corr=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=pos, text=self.Messages["Param10"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
+            Light_Corr.grid(row=pos+2, sticky="w")
+            if auto and self.params_export["CheckVar"] >= pos:
+                self.CheckVar.set(pos)
+        pos+=1
 
         #Background substraction
         if self.Vid.Back[0]==1:
-            Back=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=5, text=self.Messages["Names7"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
-            Back.grid(row=7, sticky="w")
-            if auto and self.params_export["CheckVar"] >= 5:
-                self.CheckVar.set(5)
+            Back=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=pos, text=self.Messages["Names7"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
+            Back.grid(row=pos+2, sticky="w")
+            if auto and self.params_export["CheckVar"] >= pos:
+                self.CheckVar.set(pos)
+        pos+=1
 
         #Threshold
-        Thresh=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=6, text=self.Messages["Names1"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
-        Thresh.grid(row=8, sticky="w")
-        if auto and self.params_export["CheckVar"]>=6:
-            self.CheckVar.set(6)
+        Thresh=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=pos, text=self.Messages["Names1"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
+        Thresh.grid(row=pos+2, sticky="w")
+        if auto and self.params_export["CheckVar"]>=pos:
+            self.CheckVar.set(pos)
+        pos+=1
 
         #Erosion
         if self.Vid.Track[1][1]>0:
-            Erosion=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=7, text=self.Messages["Names2"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
-            Erosion.grid(row=9, sticky="w")
-            if auto and self.params_export["CheckVar"] >= 7:
-                self.CheckVar.set(7)
+            Erosion=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=pos, text=self.Messages["Names2"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
+            Erosion.grid(row=pos+2, sticky="w")
+            if auto and self.params_export["CheckVar"] >= pos:
+                self.CheckVar.set(pos)
+        pos+=1
 
         #Dilation
         if self.Vid.Track[1][2] > 0:
-            Dilation=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=8, text=self.Messages["Names3"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
-            Dilation.grid(row=10, sticky="w")
-            if auto and self.params_export["CheckVar"] >= 8:
-                self.CheckVar.set(8)
+            Dilation=Checkbutton(Right_Frame, variable=self.CheckVar, onvalue=pos, text=self.Messages["Names3"], command=self.change_type,**Color_settings.My_colors.Checkbutton_Base)
+            Dilation.grid(row=pos+2, sticky="w")
+            if auto and self.params_export["CheckVar"] >= pos:
+                self.CheckVar.set(pos)
+        pos+=1
 
+        self.only_arena_B = Button(Right_Frame, text="Show only arenas", command=self.change_arenas_show, **Color_settings.My_colors.Button_Base)#CTXT
+        self.only_arena_B.grid(row=0, column=0, sticky="ew")
 
         #Display trajectories
         if self.Vid.Tracked:
             self.show_track_B=Button(Right_Frame, text=self.Messages["Save_Vid3"], command=self.change_track,**Color_settings.My_colors.Button_Base)
-            self.show_track_B.grid(row=0, column=0, sticky="ew")
+            self.show_track_B.grid(row=0, column=1, sticky="ew")
 
             self.Coos_brutes, self.who_is_here = CoosLS.load_coos(self.Vid, location=self)
             self.Coos=self.Coos_brutes.copy()
@@ -160,7 +179,7 @@ class Lecteur(Frame):
 
             #If the trajectories were smoothed, we propose to display smoothed trajectories
             self.show_Explo_B = Button(Right_Frame, text=self.Messages["Sequences_Explo"], command=self.change_explo,**Color_settings.My_colors.Button_Base)
-            self.show_Explo_B.grid(row=0, column=1, sticky="ew")
+            self.show_Explo_B.grid(row=1, column=1, sticky="ew")
 
             self.show_smooth_B = Button(Right_Frame, text=self.Messages["Save_Vid4"], command=self.change_smooth,
                                         **Color_settings.My_colors.Button_Base)
@@ -176,14 +195,16 @@ class Lecteur(Frame):
             self.max_tail = IntVar()
             self.max_tail.set(min([self.Vid.Frame_nb[1]/self.Vid.Frame_rate[1], 600]))
             self.Scale_tail = Scale(Right_Frame, from_=0, to=self.max_tail.get(), variable=self.tail_size, resolution=0.5, orient="horizontal", label=self.Messages["Control4"], command=self.modif_image,**Color_settings.My_colors.Scale_Base)
-
+            self.show_all = BooleanVar()
+            self.show_all.set(False)
+            self.show_all_traj = Checkbutton(Right_Frame, text="Show all trajectories", command=self.modif_image, variable=self.show_all, **Color_settings.My_colors.Checkbutton_Base)#CTXT
 
         #Save the video
         self.Save_Vid_Button=Button(Right_Frame, text=self.Messages["GButton18"], command=self.save_vid, **Color_settings.My_colors.Button_Base)
         self.Save_Vid_Button.config(background=Color_settings.My_colors.list_colors["Validate"],fg=Color_settings.My_colors.list_colors["Fg_Validate"])
         self.Save_Vid_Button.grid(row=12, column=0)
 
-        self.Save_multi_Vid_Button=Button(Right_Frame, text="Export multiple videos", command=self.save_multi_vid, **Color_settings.My_colors.Button_Base)
+        self.Save_multi_Vid_Button=Button(Right_Frame, text="Export multiple videos", command=self.save_multi_vid, **Color_settings.My_colors.Button_Base)#CTXT
         self.Save_multi_Vid_Button.config(background=Color_settings.My_colors.list_colors["Validate"],fg=Color_settings.My_colors.list_colors["Fg_Validate"])
         self.Save_multi_Vid_Button.grid(row=12, column=1)
 
@@ -192,6 +213,17 @@ class Lecteur(Frame):
         self.Save_Return_Button.config(background=Color_settings.My_colors.list_colors["Cancel"],
                                     fg=Color_settings.My_colors.list_colors["Fg_Cancel"])
         self.Save_Return_Button.grid(row=16, column=0, columnspan=2)
+
+        ttk.Separator(Right_Frame, orient=HORIZONTAL).grid(row=18, column=0, columnspan=2, sticky="ew")
+        ttk.Separator(Right_Frame, orient=HORIZONTAL).grid(row=19, column=0, columnspan=2, sticky="ew")
+
+        self.Save_image=Button(Right_Frame, text="Export image", command=self.export_image, **Color_settings.My_colors.Button_Base)#CTXT
+        self.Save_image.config(background=Color_settings.My_colors.list_colors["Validate"],fg=Color_settings.My_colors.list_colors["Fg_Validate"])
+        self.Save_image.grid(row=20, column=0)
+
+        self.Save_heatmap=Button(Right_Frame, text="Export heatmap", command=self.export_heatmap, **Color_settings.My_colors.Button_Base)#CTXT
+        self.Save_heatmap.config(background=Color_settings.My_colors.list_colors["Validate"],fg=Color_settings.My_colors.list_colors["Fg_Validate"])
+
 
         #Video reader
 
@@ -218,20 +250,43 @@ class Lecteur(Frame):
 
         self.bouton_hide = Button(Right_Frame, text=self.Messages["Do_track1"], command=self.hide, **Color_settings.My_colors.Button_Base)
 
-
         if self.auto:
             if self.Vid.Tracked:
                 self.change_track(forced=self.params_export["show_track"])
                 self.change_smooth(forced=self.params_export["show_smooth"])
                 self.change_show_ID(forced=self.params_export["show_ID"])
                 self.change_explo(forced=self.params_export["show_explo"])
+                self.change_arenas_show(forced=self.params_export["show_arenas"])
+                self.show_all.set(self.params_export["all_traj"])
+
                 if len(self.Vid.Analyses[4][0]) > 0:
                     self.change_deform(forced=self.params_export["show_deform"])
                 self.tail_size.set(self.params_export["tail_size"])
 
+            self.show_only_ar=self.params_export["show_arenas"]
+
             self.Vid_Lecteur.speed.set(self.params_export["speed"])
             self.save_vid(self.params_export["dir"])
             self.End_of_window()
+
+    def export_image(self):
+        if self.CheckVar.get()>0:
+            back=self.modif_image(aff=False)
+            new_img = self.Vid_Lecteur.afficher_img(img=back, return_img=True)
+        else:
+            back = self.modif_image(aff=False, Trans=True)
+            new_img = self.Vid_Lecteur.afficher_img(img=back, return_img=True, Trans=True)
+
+        if self.CheckVar.get() > 0:
+            new_img = cv2.cvtColor(new_img, cv2.COLOR_BGR2RGB)
+        else:
+            new_img=cv2.cvtColor(new_img,cv2.COLOR_BGRA2RGBA)
+
+        file = filedialog.asksaveasfilename(defaultextension=".png",
+                                            initialfile=self.Vid.User_Name + "_" + self.Messages["Names8"] + ".png",
+                                            filetypes=(("Image", "*.png"),))
+        if file != "":
+            cv2.imwrite(file, new_img)
 
 
     def change_track(self, forced=None):
@@ -294,6 +349,18 @@ class Lecteur(Frame):
             self.Show_ID_B.config(background=Color_settings.My_colors.list_colors["Validate"], fg=Color_settings.My_colors.list_colors["Fg_Validate"])
         self.modif_image()
 
+    def change_arenas_show(self, forced=None):
+        if forced!=None:
+            self.show_only_ar= not forced
+        #Whether the identities should appear or not
+        if self.show_only_ar:
+            self.show_only_ar=False
+            self.only_arena_B.config(**Color_settings.My_colors.Button_Base)
+        else:
+            self.show_only_ar=True
+            self.only_arena_B.config(background=Color_settings.My_colors.list_colors["Validate"], fg=Color_settings.My_colors.list_colors["Fg_Validate"])
+        self.modif_image()
+
     def hide(self):
         #To minimise the window
         self.cache = True
@@ -310,23 +377,29 @@ class Lecteur(Frame):
                        "show_deform":self.show_deform,
                        "show_ID":self.show_ID,
                        "speed":self.Vid_Lecteur.speed.get(),
-                       "tail_size":self.tail_size.get()}
+                       "tail_size":self.tail_size.get(),
+                       "show_arenas":self.show_only_ar,
+                       "all_traj":self.show_all.get()}
 
 
         newWindow = Toplevel(self.parent)
         interface = Interface_extend.Extend(parent=newWindow, value=Export_params, boss=self.main_frame,
                                             Video_file=self.Vid, type="export", do_self=True, to_close=self)
 
-    def save_vid(self, file_to_save=None):
+    def save_vid(self, file_to_save=None, combine_imgs=False):
         #Export the video. To that aim, the video is played and every image is changed according to the parameters set by user.
         #The resulting video is saved in a file defined by user
         self.Vid_Lecteur.stop()
         self.Vid_Lecteur.unbindings()
+        self.Vid_Lecteur.GotoBeg()
         #Ask user where to save the video
-        if file_to_save==None:
-            file_to_save = filedialog.asksaveasfilename(defaultextension=".avi", initialfile="Untitled_video.avi", filetypes=(("Video", "*.avi"),))
+        if not combine_imgs:
+            if file_to_save==None:
+                file_to_save = filedialog.asksaveasfilename(defaultextension=".avi", initialfile="Untitled_video.avi", filetypes=(("Video", "*.avi"),))
+            else:
+                file_to_save=file_to_save+"/"+self.Vid.User_Name+"_exported.avi"
         else:
-            file_to_save=file_to_save+"/"+self.Vid.User_Name+"_exported.avi"
+            file_to_save="None"
 
 
         if len(file_to_save)>0:
@@ -355,30 +428,42 @@ class Lecteur(Frame):
                 frame_rate = self.Vid_Lecteur.fr_rate
 
             size = (frame_width, frame_height)
-            result = cv2.VideoWriter(file_to_save, cv2.VideoWriter_fourcc(*'XVID'), frame_rate, size)#We save the video in teh chosen file
+            if not combine_imgs:
+                result = cv2.VideoWriter(file_to_save, cv2.VideoWriter_fourcc(*'XVID'), frame_rate, size)#We save the video in teh chosen file
+            else:
+                values_map=np.zeros([frame_height, frame_width], np.uint64)
 
             for frame in np.arange(int(start), int(end) + self.Vid_Lecteur.one_every, self.Vid_Lecteur.one_every):
                 frame=int(frame)
                 try:
                     self.loading_bar.show_load((frame - start) / ((end+ self.Vid_Lecteur.one_every )- start - 1))
                     new_img=self.Vid_Lecteur.move1(aff=False)
-                    new_img=cv2.cvtColor(new_img,cv2.COLOR_BGR2RGB)
-                    result.write(new_img)
+                    if not combine_imgs:
+                        new_img = cv2.cvtColor(new_img, cv2.COLOR_BGR2RGB)
+                        result.write(new_img)
+                    else:
+                        new_img=cv2.cvtColor(new_img, cv2.COLOR_BGR2GRAY)
+                        new_img[new_img>0]=1
+                        values_map+=new_img
+
 
                 except:
                     pass
-            result.release()
+            if not combine_imgs:
+                result.release()
+                # In the end, the Frame is destroyed and we go back to main menu
+                self.loading_bar.destroy()
+                if self.cache:
+                    self.boss.update_idletasks()
+                    self.boss.state('normal')
+                    self.boss.overrideredirect(True)
 
-            #In the end, the Frame is destroyed and we go back to main menu
-            self.loading_bar.destroy()
-            if self.cache:
-                self.boss.update_idletasks()
-                self.boss.state('normal')
-                self.boss.overrideredirect(True)
+                self.End_of_window()
+                return (True)
+            else:
+                Interface_heatmaps.open_heatmap(self, self.Vid, 0, (self.Vid.Cropped[1][1]-self.Vid.Cropped[1][0])/(self.Vid.Frame_rate[0] / self.Vid.Frame_rate[1]), values_map, self.Vid_Lecteur)
 
-            self.End_of_window()
 
-        return(True)
 
     def End_of_window(self):
         #Propoer close pf the Frame
@@ -393,7 +478,7 @@ class Lecteur(Frame):
         else:
             self.boss.destroy()
 
-    def modif_image(self, img=[], aff=True, **kwargs):
+    def modif_image(self, img=[], aff=True, Trans=False, **kwargs):
         if self.auto:
             aff=False
 
@@ -404,32 +489,46 @@ class Lecteur(Frame):
             self.last_empty = img
             new_img = np.copy(img)
 
+
+        #If we dn't want the video
+        pos=0
+        if self.CheckVar.get()==pos:
+            if not Trans:
+                new_img = np.zeros([new_img.shape[0], new_img.shape[1], 3], np.uint8)
+                new_img.fill(255)
+            else:
+                new_img = np.zeros([new_img.shape[0], new_img.shape[1], 4], np.uint8)
+
+
         #Stabilise
-        if self.CheckVar.get()>0 and self.Vid.Stab[0]:
+        if self.CheckVar.get()>pos and self.Vid.Stab[0]:
             new_img = Class_stabilise.find_best_position(Vid=self.Vid, Prem_Im=self.Vid_Lecteur.Prem_image_to_show, frame=new_img, show=False)
+        pos+=1
+
 
         if self.Vid.Back[0]:
             self.TMP_back = self.Or_back.copy()
 
 
         #Greyscale
-        if self.CheckVar.get()>1:
-
+        if self.CheckVar.get()>pos:
             if self.Vid.Track[1][10][0] == 0:
                 new_img = cv2.cvtColor(new_img, cv2.COLOR_BGR2GRAY)
 
                 if self.Vid.Back[0] == 1 and len(self.TMP_back.shape) == 3:
                     self.TMP_back = cv2.cvtColor(self.TMP_back, cv2.COLOR_BGR2GRAY)
+        pos+=1
 
         #Correct flicker
-        if self.CheckVar.get()>2 and self.Vid.Track[1][9] and int(self.Scrollbar.active_pos) > round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every):
+        if self.CheckVar.get()>pos and self.Vid.Track[1][9] and int(self.Scrollbar.active_pos) > round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every):
             diff = round(self.Scrollbar.active_pos - (self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every))
             for elem in range(self.Scrollbar.active_pos - min(2, diff), self.Scrollbar.active_pos):
                 last_img = cv2.cvtColor(self.Vid_Lecteur.update_image(elem, return_img=True), cv2.COLOR_BGR2GRAY)
                 new_img = cv2.addWeighted(last_img, 0.5, new_img, 1 - 0.5, 0)
+        pos+=1
 
         #Light_correction
-        if self.CheckVar.get()>3 and self.Vid.Track[1][7]:
+        if self.CheckVar.get()>pos and self.Vid.Track[1][7]:
             grey = np.copy(new_img)
             if self.Vid.Mask[0]:
                 bool_mask = self.mask[:, :].astype(bool)
@@ -441,9 +540,10 @@ class Lecteur(Frame):
             brightness = np.sum(grey2) / (255 * grey2.size)  # Mean value
             ratio = brightness / self.Vid_Lecteur.or_bright
             new_img = cv2.convertScaleAbs(grey, alpha=1 / ratio, beta=0)
+        pos+=1
 
         #Background
-        if self.CheckVar.get()>4:
+        if self.CheckVar.get()>pos:
             # Show background subtraction
 
             if self.Vid.Back[0] == 2:
@@ -514,8 +614,10 @@ class Lecteur(Frame):
             elif not self.Vid.Back[1]==3 and self.Vid.Track[1][10][0] == 1:
                 new_img = cv2.cvtColor(new_img, cv2.COLOR_BGR2GRAY)
 
+        pos+=1
 
-        if self.CheckVar.get()>5 and self.CheckVar.get()!=9:
+
+        if self.CheckVar.get()>pos and self.CheckVar.get()!=10:
             if self.Vid.Back[0]==1 or self.Vid.Back[0]==2:
                 _, new_img = cv2.threshold(new_img, self.Vid.Track[1][0], 255, cv2.THRESH_BINARY)
             elif self.Vid.Back[0]==0:
@@ -523,41 +625,50 @@ class Lecteur(Frame):
                     new_img = cv2.bitwise_not(new_img)
 
                 new_img = cv2.adaptiveThreshold(new_img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,
-                                                self.Vid.Track[1][0] + 1 , 10)
+                                                self.Vid.Track[1][0] , self.Vid.Track[1][11])
 
 
             # Mask
             if self.Vid.Mask[0]:
                 new_img = cv2.bitwise_and(new_img, new_img, mask=self.mask)
+        pos+=1
 
         # Erosion
-        if self.CheckVar.get()>6 and self.Vid.Track[1][1] > 0:
+        if self.CheckVar.get()>pos and self.Vid.Track[1][1] > 0:
             new_img = cv2.erode(new_img,self.kernel, iterations=self.Vid.Track[1][1])
+        pos+=1
 
         # Dilation
-        if self.CheckVar.get()>7 and self.Vid.Track[1][2] > 0:
+        if self.CheckVar.get()>pos and self.Vid.Track[1][2] > 0:
             new_img = cv2.dilate(new_img, self.kernel, iterations=self.Vid.Track[1][2])
+        pos+=1
 
         if self.show_deform:
             new_img = cv2.warpPerspective(new_img, self.Vid.Analyses[4][0], (new_img.shape[1], new_img.shape[0]))
 
-        #Show trajectories
-        if self.show_track or self.show_ID or self.show_expo:
-            if len(new_img.shape)<3:
-                new_img=cv2.cvtColor(new_img, cv2.COLOR_GRAY2BGR)
+        try:
+            new_img=cv2.cvtColor(new_img,cv2.COLOR_GRAY2BGR)
+        except:
+            pass
 
-            if self.Vid.Cropped[0]:
-                to_remove = round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every)
-            else:
-                to_remove = 0
+        if self.Vid.Cropped[0]:
+            to_remove = round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every)
+        else:
+            to_remove = 0
 
+        if self.Vid.Tracked:
             for ind in range(self.NB_ind):
-                color = self.Vid.Identities[ind][2]
                 if self.show_expo:
                     if self.Vid.Analyses[2][0] == 0:
-                        Exploration_in, empty = Functions_Analyses_Speed.calculate_exploration(self.Vid.Analyses[2],self.Vid, self.Coos[ind][ 0:int(self.Scrollbar.active_pos - to_remove + 1)],                                                                                           0,
+                        Exploration_in, empty = Functions_Analyses_Speed.calculate_exploration(self.Vid.Analyses[2],
+                                                                                               self.Vid, self.Coos[ind][
+                                                                                                         0:int(
+                                                                                                             self.Scrollbar.active_pos - to_remove + 1)],
+                                                                                               0,
                                                                                                int(self.Scrollbar.active_pos - to_remove + 1),
-                                                                                               self.Arenas[self.Vid.Identities[ind][0]], show=True)  #
+                                                                                               self.Arenas[
+                                                                                                   self.Vid.Identities[ind][
+                                                                                                       0]], show=True)  #
 
                         bool_mask = empty.astype(bool)
                         empty = cv2.cvtColor(empty, cv2.COLOR_GRAY2RGB)
@@ -567,62 +678,141 @@ class Lecteur(Frame):
                         new_img[bool_mask] = cv2.addWeighted(new_img, alpha, empty, 1 - alpha, 0)[bool_mask]
 
                     else:
-                        Exploration_in, new_img = Functions_Analyses_Speed.calculate_exploration(self.Vid.Analyses[2],self.Vid, self.Coos[ind][0:int(self.Scrollbar.active_pos - to_remove + 1)],
-                                                                                                 0,int(self.Scrollbar.active_pos - to_remove + 1),self.Arenas[self.Vid.Identities[ind][0]],show=True, image=new_img)
+                        Exploration_in, new_img = Functions_Analyses_Speed.calculate_exploration(self.Vid.Analyses[2],
+                                                                                                 self.Vid, self.Coos[ind][
+                                                                                                           0:int(
+                                                                                                               self.Scrollbar.active_pos - to_remove + 1)],
+                                                                                                 0,
+                                                                                                 int(self.Scrollbar.active_pos - to_remove + 1),
+                                                                                                 self.Arenas[
+                                                                                                     self.Vid.Identities[
+                                                                                                         ind][0]],
+                                                                                                 show=True, image=new_img)
 
-                if self.show_track:
-                    for prev in range(min(int(self.tail_size.get() * self.Vid.Frame_rate[1]), int(self.Scrollbar.active_pos - to_remove))):
-                        if int(self.Scrollbar.active_pos - prev) > round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every) and int(self.Scrollbar.active_pos) <= round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every):
-                            if self.Coos[ind][int(self.Scrollbar.active_pos - 1 - prev - to_remove)][
-                                0] != -1000 and  self.Coos[ind][int(self.Scrollbar.active_pos - prev - to_remove)][
-                                        0] != -1000:
-
-                                if self.show_track:
-
-                                    TMP_tail_1 = (int(
-                                        self.Coos[ind][int(self.Scrollbar.active_pos - 1 - prev - to_remove)][
-                                            0]),
-                                                  int(self.Coos[ind][
-                                                          int(self.Scrollbar.active_pos - 1 - prev - to_remove)][1]))
-
-                                    TMP_tail_2 = (
-                                    int(self.Coos[ind][int(self.Scrollbar.active_pos - prev - to_remove)][0]),
-                                    int(self.Coos[ind][int(self.Scrollbar.active_pos - prev - to_remove)][1]))
-                                    new_img = cv2.line(new_img, TMP_tail_1, TMP_tail_2, color, max(int(3*self.Vid_Lecteur.ratio),1))
-
-                if self.Scrollbar.active_pos >= round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every) and self.Scrollbar.active_pos < (round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every) + 1):
-                    center = self.Coos[ind][self.Scrollbar.active_pos - to_remove]
-                    if center[0] != -1000:
-                        if self.show_track:
-                            new_img = cv2.circle(new_img, (int(center[0]), int(center[1])),radius=max(int(4 * self.Vid_Lecteur.ratio), 1), color=color, thickness=-1)
-                        if self.show_ID:
-                            fontpath = os.path.join(".","simsun.ttc")
-                            if self.Vid_Lecteur.ratio < 10:
-                                font = ImageFont.truetype(fontpath, max(1, int(self.Vid_Lecteur.ratio * 30)))
-                                stroke_width = max(1, int(self.Vid_Lecteur.ratio * 1))
-                            else:
-                                font = ImageFont.truetype(fontpath, 1)
-                                stroke_width = 1
-                            new_img = Image.fromarray(new_img)
-                            draw = ImageDraw.Draw(new_img)
-                            draw.text((int(float(center[0])+10*self.Vid_Lecteur.ratio), int(float(center[1])+10*self.Vid_Lecteur.ratio)), self.Vid.Identities[ind][1], font=font, fill=(255, 255, 255, 0), stroke_width=stroke_width)
-                            draw.text((int(float(center[0])+10*self.Vid_Lecteur.ratio), int(float(center[1])+10*self.Vid_Lecteur.ratio)), self.Vid.Identities[ind][1], font=font, fill=(color ))
-                            new_img = np.array(new_img)
         if aff:
             self.Vid_Lecteur.afficher_img(new_img)
         else:
+            self.draw_over(new_img,0,0,1, Trans=Trans)
             return(new_img)
+
+    def draw_over(self, img, Xadd,Yadd,ratio, Trans=False):
+        # Show trajectories
+        if self.show_only_ar:
+            mask=np.zeros([img.shape[0],img.shape[1],3],np.uint8)
+            corr_Ars = []
+            for Ar in self.Arenas:
+                new_ar = Ar.copy()
+                new_ar = new_ar.reshape(-1, 2)
+                new_ar[:, 0] += Xadd
+                new_ar[:, 1] += Yadd
+                new_ar = new_ar / ratio
+                corr_Ars.append(new_ar.reshape(-1, 1, 2).astype(np.int32))
+            mask=cv2.drawContours(mask, corr_Ars, -1, (255,255,255), -1)
+            cv2.bitwise_and(mask, img, dst=img)
+
+        if self.Vid.Tracked and (self.show_ID or self.show_all.get() or self.show_track):
+            if self.Scrollbar.active_pos >= round(
+                    ((self.Vid.Cropped[1][0]) / self.Vid_Lecteur.one_every)) and self.Scrollbar.active_pos <= round(
+                    self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every):
+
+                window_length = min(int(self.tail_size.get() * self.Vid.Frame_rate[1]),
+                                    int(self.Scrollbar.active_pos - self.to_sub))
+                all_ind_available = self.who_is_here[self.Scrollbar.active_pos - self.to_sub - window_length:int(
+                    self.Scrollbar.active_pos - self.to_sub)]
+                unique_inds = set().union(*all_ind_available)
+                for ind in unique_inds:
+                    if not Trans:
+                        color = self.Vid.Identities[ind][2]
+                    else:
+                        color=[v for v in self.Vid.Identities[ind][2]]+[255]
+
+                    if not self.show_all.get() and self.show_track:
+                        for prev in range(min(int(self.tail_size.get() * self.Vid.Frame_rate[1]),
+                                              int(self.Scrollbar.active_pos - self.to_sub))):
+                            if int(self.Scrollbar.active_pos - prev) > round(
+                                    self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every) and int(
+                                    self.Scrollbar.active_pos) <= round(
+                                    self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every):
+                                if self.Coos[ind][int(self.Scrollbar.active_pos - 1 - prev - self.to_sub)][0] != -1000 and \
+                                        self.Coos[ind][int(self.Scrollbar.active_pos - prev - self.to_sub)][0] != -1000:
+                                    TMP_tail_1 = (int((self.Coos[ind, int(
+                                        self.Scrollbar.active_pos - 1 - prev - self.to_sub), 0] + Xadd) / ratio),
+                                                  int((self.Coos[ind, int(
+                                                      self.Scrollbar.active_pos - 1 - prev - self.to_sub), 1] + Yadd) / ratio))
+
+                                    TMP_tail_2 = (int((self.Coos[ind, int(
+                                        self.Scrollbar.active_pos - prev - self.to_sub), 0] + Xadd) / ratio),
+                                                  int((self.Coos[ind, int(
+                                                      self.Scrollbar.active_pos - prev - self.to_sub), 1] + Yadd) / ratio))
+                                    cv2.line(img, TMP_tail_1, TMP_tail_2, color, 2)
+
+
+
+                    elif self.show_all.get():
+                        for prev in range(1, int((self.Vid.Cropped[1][1] - self.Vid.Cropped[1][
+                            0]) / self.Vid_Lecteur.one_every)):
+                            if self.Coos[ind, int(((self.Vid.Cropped[1][
+                                1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub), 0] != -1000 and \
+                                    self.Coos[ind, int(((self.Vid.Cropped[1][
+                                        1]) / self.Vid_Lecteur.one_every) - prev - self.to_sub), 0] != -1000:
+                                TMP_tail_1 = (
+                                    int((self.Coos[ind, int(((self.Vid.Cropped[1][
+                                        1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub), 0] + Xadd) / ratio),
+                                    int((self.Coos[ind, int(((self.Vid.Cropped[1][
+                                        1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub), 1] + Yadd) / ratio))
+
+                                TMP_tail_2 = (
+                                    int((self.Coos[ind, int(((self.Vid.Cropped[1][
+                                        1]) / self.Vid_Lecteur.one_every) - prev - self.to_sub), 0] + Xadd) / ratio),
+                                    int((self.Coos[ind, int(((self.Vid.Cropped[1][
+                                        1]) / self.Vid_Lecteur.one_every) - prev - self.to_sub), 1] + Yadd) / ratio))
+                                cv2.line(img, TMP_tail_1, TMP_tail_2, color, 2)
+
+                    center = self.Coos[ind, self.Scrollbar.active_pos - self.to_sub].copy()
+                    if center[0] != -1000:
+                        center[0] = (center[0] + Xadd) / ratio
+                        center[1] = (center[1] + Yadd) / ratio
+                        cv2.circle(img, (int(center[0]), int(center[1])), radius=3, color=color, thickness=-1)
+
+                        if self.show_ID:
+                            x = int(float(center[0]) + 10)
+                            y = int(float(center[1]) - 7)
+
+                            # Number of  target expected in each contour is written here
+                            if not Trans:
+                                cv2.putText(img, self.Vid.Identities[ind][1], (x, y),
+                                            cv2.FONT_HERSHEY_DUPLEX, 0.75, (255, 255, 255),
+                                            max(int(2), 1))
+                            else:
+                                cv2.putText(img, self.Vid.Identities[ind][1], (x, y),
+                                            cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 255, 255, 255),
+                                            max(int(2), 1))
+
+                            cv2.putText(img, self.Vid.Identities[ind][1], (x , y ),
+                                        cv2.FONT_HERSHEY_DUPLEX, 0.75, color,
+                                        max(int(1), 1))
+
+    def export_heatmap(self):
+        self.save_vid(combine_imgs=True)
 
     def change_type(self):
         #Update the options available according to what kind of video the user want as an output
         if self.show_track :#If user there is a tracking done, we allow to choose for tail size
-            self.Scale_tail.grid(row=1, column=1,rowspan=8, columnspan=2)
+            self.Save_heatmap.grid_forget()#We won't do an heatmap with trajectories
+            self.Scale_tail.grid(row=2, column=1,rowspan=3, columnspan=2)
+            self.show_all_traj.grid(row=5, column=1,rowspan=4, columnspan=2)
             if self.Vid.Smoothed[0]>0:
                 self.show_smooth_B.grid(row=1, column=1, sticky="ew")
         else:
+            if self.CheckVar.get()>=6:
+                self.Save_heatmap.grid(row=20, column=1)
+            else:
+                self.Save_heatmap.grid_forget()
             try:
                 self.Scale_tail.grid_forget()
                 self.show_smooth_B.grid_forget()
+                self.show_all_traj.grid_forget()
+                self.show_all.set(False)
             except:
                 pass
 
@@ -646,7 +836,7 @@ class Lecteur(Frame):
         tmp_coos=data.copy()
         for ind in range(len(self.Coos_brutes)):
             ind_coo=[[np.nan if val==-1000 else val for val in row ] for row in tmp_coos[ind]]
-            ind_coo=np.array(ind_coo, dtype=np.float)
+            ind_coo=np.array(ind_coo, dtype=float)
             for column in range(2):
                 Pos_NA = np.where(np.isnan(ind_coo[:, column]))[0]
                 debuts = [0]

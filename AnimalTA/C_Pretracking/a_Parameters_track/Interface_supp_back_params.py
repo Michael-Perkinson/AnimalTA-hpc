@@ -80,6 +80,12 @@ class Details_back(Frame):
         Grid.rowconfigure(Frame_rel_back, 0, weight=1)
         Grid.rowconfigure(Frame_rel_back, 1, weight=1)
 
+        self.dyn_hist=DoubleVar()
+        self.dyn_hist.set(self.boss.dynamical_hist)
+        if self.boss.Dynamical_back.get()==1:
+            scale=Scale(self,orient=HORIZONTAL,**Color_settings.My_colors.Scale_Base,label="Window length for background construction (sec)", var=self.dyn_hist,from_=round(1/(self.boss.Vid.Frame_rate[1])*5,3), to=1720, resolution=round(1/(self.boss.Vid.Frame_rate[1])*5,3))#CTXT
+            scale.grid(row=2, column=0, columnspan=2, sticky="nsew")
+
 
         #Validation button
         self.B_validate = Button(self, text=self.Messages["Validate"], command=self.validate, **Color_settings.My_colors.Button_Base)
@@ -96,6 +102,8 @@ class Details_back(Frame):
         #Save and destroy the parent window
         self.boss.rel_back.set(self.rel_back.get())
         self.boss.target_type.set(self.target_type.get())
+        self.boss.dynamical_hist=self.dyn_hist.get()
+
         self.boss.modif_image()
         self.grab_release()
         self.parent.destroy()

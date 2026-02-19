@@ -16,7 +16,7 @@ class Cropping(Frame):
         self.boss=boss
         self.grid(row=0,column=0,rowspan=2,sticky="nsew")
         self.Vid = Video_file
-        self.moving = None#If the user is moving something on the frame
+        self.moving = []#If the user is moving something on the frame
         self.CSp=self.Vid.Cropped_sp[1].copy()#Where to draw the cropping lines
         self.CSp=[int(val) for val in self.CSp]
         #Importation of the messages
@@ -381,30 +381,38 @@ class Cropping(Frame):
         self.HW.grid_forget()
         self.HW.destroy()
         self.main_frame.return_main()
+        self.boss.select_vid()
 
 
     #If the user try to interact with the frame:
     def pressed_can(self, Pt, event=None, *args):
         #We check if the user was pressing on one of the cropping lines, the moving variable indicates which line is pressed
-        if abs(Pt[0]-self.CSp[1])<self.Vid_Lecteur.ratio*7:#If we press on the cropping line:
-            self.moving=1
+        self.moving=[]
+        if abs(Pt[0]-self.CSp[1])<self.Vid_Lecteur.ratio*5:#If we press on the cropping line:
+            self.moving.append(1)
 
-        if abs(Pt[0]-self.CSp[3])<self.Vid_Lecteur.ratio*7:#If we press on the cropping line:
-            self.moving=3
+        if abs(Pt[0]-self.CSp[3])<self.Vid_Lecteur.ratio*5:#If we press on the cropping line:
+            self.moving.append(3)
 
-        if abs(Pt[1]-self.CSp[0])<self.Vid_Lecteur.ratio*7:#If we press on the cropping line:
-            self.moving=0
+        if abs(Pt[1]-self.CSp[0])<self.Vid_Lecteur.ratio*5:#If we press on the cropping line:
+            self.moving.append(0)
 
-        if abs(Pt[1]-self.CSp[2])<self.Vid_Lecteur.ratio*7:#If we press on the cropping line:
-            self.moving=2
+        if abs(Pt[1]-self.CSp[2])<self.Vid_Lecteur.ratio*5:#If we press on the cropping line:
+            self.moving.append(2)
 
 
     def moved_can(self, Pt, Shift):
-        if self.moving!=None:
-            if self.moving==0 or self.moving==2:
-                self.CSp[self.moving]=int(Pt[1])
-            elif self.moving==1 or self.moving==3:
-                self.CSp[self.moving]=int(Pt[0])
+        if len(self.moving)>0:
+            if 0 in self.moving :
+                self.CSp[0]=int(Pt[1])
+            elif 2 in self.moving:
+                self.CSp[2] = int(Pt[1])
+
+            if 1 in self.moving :
+                self.CSp[1]=int(Pt[0])
+            elif 3 in self.moving:
+                self.CSp[3] = int(Pt[0])
+
             self.modif_image(self.last_empty)
 
     def released_can(self, Pt):
@@ -414,7 +422,7 @@ class Cropping(Frame):
         self.CSp[2]=max([int(TMP[0]),int(TMP[2])])
         self.CSp[3] = max([int(TMP[1]), int(TMP[3])])
         self.modif_image(self.last_empty)
-        self.moving=None
+        self.moving=[]
 
 
 """

@@ -1,4 +1,6 @@
-from AnimalTA.Main_interface import Mainframe
+from AnimalTA.Main_interface import start_mainframe
+import multiprocessing
 
 if __name__ == '__main__':
-    Mainframe()
+    multiprocessing.freeze_support()
+    start_mainframe()

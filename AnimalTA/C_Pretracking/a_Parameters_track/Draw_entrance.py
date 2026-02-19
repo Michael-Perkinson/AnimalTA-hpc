@@ -2,7 +2,7 @@ from tkinter import *
 
 import numpy as np
 
-from AnimalTA.A_General_tools import Function_draw_mask, UserMessages, User_help, Color_settings
+from AnimalTA.A_General_tools import Function_draw_arenas, UserMessages, User_help, Color_settings
 import cv2
 import PIL
 
@@ -114,7 +114,7 @@ class Draw_ent(Frame):
                 empty = cv2.drawContours(empty, [self.arenas[Ar]], -1, 255, int(float(event)*float(self.scale)*2))  # The width of the entrance area depends of the movemnet threshold of individuals
             else:
                 for seg in self.selected_bd[Ar]:
-                    empty = Function_draw_mask.draw_line(empty, seg[0], seg[1], 255, int(float(event) * float(self.scale) * 2))
+                    empty = Function_draw_arenas.draw_line(empty, seg[0], seg[1], 255, int(float(event) * float(self.scale) * 2))
             empty = cv2.drawContours(empty, [self.arenas[Ar]], -1, 0, -1)
             cnts, _ = cv2.findContours(empty, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             self.ents[Ar]=cnts
@@ -145,7 +145,7 @@ class Draw_ent(Frame):
                 approx = cv2.approxPolyDP(Ar, 0.025 * cv2.arcLength(Ar, True), True)
                 for pt in range(-1,len(approx)-1):
                     seg=[[approx[pt][0][0],approx[pt][0][1]],[approx[pt+1][0][0],approx[pt+1][0][1]]]
-                    if Function_draw_mask.Touched_seg([event.x, event.y], seg):
+                    if Function_draw_arenas.Touched_seg([event.x, event.y], seg):
                         if seg in self.selected_bd[count]:
                             self.selected_bd[count].pop(self.selected_bd[count].index(seg))
                         else:

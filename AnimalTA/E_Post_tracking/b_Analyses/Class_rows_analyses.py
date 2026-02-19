@@ -66,3 +66,4 @@ class Row_Ana(Frame):
             self.main.Vid_Lecteur.proper_close()
             newWindow = Toplevel(self.main.master)
             interface = Interface_sequences.Add_sequences(parent=newWindow, main=self.main)
+

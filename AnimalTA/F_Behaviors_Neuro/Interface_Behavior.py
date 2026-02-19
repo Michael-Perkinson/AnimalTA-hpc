@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 from AnimalTA.F_Behaviors_Neuro import Class_Scroll_behav, Select_ind
 from AnimalTA.E_Post_tracking import Coos_loader_saver as CoosLS
-from AnimalTA.A_General_tools import Class_change_vid_menu, Class_Lecteur, Function_draw_mask as Dr, UserMessages, \
+from AnimalTA.A_General_tools import Class_change_vid_menu, Class_Lecteur, Function_draw_arenas as Dr, UserMessages, \
     User_help, Class_stabilise, Diverse_functions
 from tkinter import filedialog
 import csv
@@ -53,9 +53,7 @@ class Add_Behavior(Frame):
         self.choice_menu.grid(row=0, column=0)
 
         #We load the Arenas shapes to be able to show the user there positions
-        mask = Dr.draw_mask(self.Vid)
-        self.Arenas, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        self.Arenas = Dr.Organise_Ars(self.Arenas)
+        self.Arenas = Dr.get_arenas(self.Vid)
 
         # Help user and parameters
         self.HW = User_help.Help_win(self.parent, default_message=self.Messages["Control9"])

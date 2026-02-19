@@ -1,13 +1,12 @@
-import time
 from tkinter import *
 import cv2
 import numpy as np
 from AnimalTA.E_Post_tracking.a_Tracking_verification import Interface_portion, Interpolate_all
-from AnimalTA.E_Post_tracking.b_Analyses import Interface_sequences
+from AnimalTA.E_Post_tracking.b_Analyses import Interface_sequences, Functions_Analyses_Speed
 from AnimalTA.E_Post_tracking import Coos_loader_saver as CoosLS
-from AnimalTA.A_General_tools import Class_change_vid_menu, Class_Lecteur, Function_draw_mask as Dr, UserMessages, \
+from AnimalTA.A_General_tools import Class_change_vid_menu, Class_Lecteur, Function_draw_arenas as Dr, UserMessages, \
     User_help, Class_stabilise, Diverse_functions, Interface_extend, Color_settings, Message_simple_question as MsgBox
-
+from AnimalTA.B_Project_organisation import Interface_pretracking
 import csv
 import math
 from tkinter import ttk
@@ -52,8 +51,6 @@ class Lecteur(Frame):
         self.opening_Sequences = copy.deepcopy(self.Vid.Sequences)
         self.opening_Track= copy.deepcopy(self.Vid.Track[1][6])
 
-
-        # self.Vid.Morphometrics = copy.deepcopy(self.Vid.Morphometrics)
         #Whether the individuals absent on the current frame should be hidden or not
         Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
         with open(Param_file, 'rb') as fp:
@@ -84,10 +81,7 @@ class Lecteur(Frame):
         self.choice_menu.grid(row=0, column=0)
 
         #We load the Arenas shapes to be able to show the user there positions
-        mask = Dr.draw_mask(self.Vid)
-        self.Arenas_with_holes, self.Arenas = Dr.exclude_inside(mask)
-        self.Arenas = Dr.Organise_Ars(self.Arenas)
-        self.Arenas_with_holes = Dr.Organise_Ars(self.Arenas)
+        self.Arenas_with_holes = Dr.get_arenas(self.Vid)
 
 
         # Help user and parameters
@@ -95,15 +89,19 @@ class Lecteur(Frame):
                                      shortcuts={self.Messages["Short_Ctrl_Z"]: self.Messages["Short_Ctrl_Z_Ch"],
                                                 self.Messages["Short_Shift_clickT"]: self.Messages["Short_Shift_clickT_Ch"],
                                                 self.Messages["Short_Shift_Ctrl_clickT"]: self.Messages[ "Short_Shift_Ctrl_clickT_Ch"],
-                                                self.Messages["Short_Ctrl_C"]: self.Messages["Short_Ctrl_C_Ch"],
-                                                self.Messages["Short_Ctrl_V"]: self.Messages["Short_Ctrl_V_Ch"],
                                                 self.Messages["Short_A"]: self.Messages["Short_A_Ch"],
+                                                self.Messages["Short_L"]: self.Messages["Short_L_Ch"],
+                                                "N": "Go to the next missing frame",  #CTXT
+                                                "E": "Delete group of coordinates",  # CTXT
+                                                "Alt + click": "Change coordinates of the current frame for the selected individual",  # CTXT
                                                 self.Messages["Short_Tab"]: self.Messages["Short_Tab_Ch"],
                                                 self.Messages["Short_Return"]: self.Messages["Short_Return_Ch"],
-                                                self.Messages["Short_L"]: self.Messages["Short_L_Ch"],
+
                                                 self.Messages["Short_Alt_C"]: self.Messages["Short_Alt_C_Ch"],
                                                 self.Messages["Short_Right_column"]: self.Messages["Short_Right_column_Ch"],
                                                 self.Messages["Short_Ctrl_W"]: self.Messages["Short_Ctrl_W_Ch"],
+                                                self.Messages["Short_Ctrl_C"]: self.Messages["Short_Ctrl_C_Ch"],
+                                                self.Messages["Short_Ctrl_V"]: self.Messages["Short_Ctrl_V_Ch"],
                                                 self.Messages["Short_Space"]: self.Messages["Short_Space_G"],
                                                 self.Messages["Short_Ctrl_click"]:self.Messages["Short_Ctrl_click_G"],
                                                 self.Messages["Short_Ctrl_Rclick"]: self.Messages["Short_Ctrl_Rclick_G"],
@@ -116,13 +114,22 @@ class Lecteur(Frame):
         self.User_params_cont=Frame(self.parent, **Color_settings.My_colors.Frame_Base)
         self.User_params_cont.grid(row=1,column=1)
 
+        Grid.columnconfigure(self.User_params_cont, 0, weight=1)
+        Grid.rowconfigure(self.User_params_cont, 0, weight=1)
+        Grid.rowconfigure(self.User_params_cont, 1, weight=1)
+        Grid.rowconfigure(self.User_params_cont, 2, weight=1)
+
+        Frame(self.User_params_cont, **Color_settings.My_colors.Frame_Base, height=10).grid(row=1,columnspan=3)
+
+
+
         self.show_arenas = False
 
         Traj_param=Frame(self.User_params_cont, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
         Traj_param.grid(row=0, column=0, columnspan=3, sticky="nsew")
         Grid.columnconfigure(Traj_param, 0, weight=1)
         Grid.columnconfigure(Traj_param, 1, weight=1)
-        Grid.columnconfigure(Traj_param, 2, weight=1)
+
 
         #Scale to allow the user to choose the length of the trajectories' tails he want to see
         self.max_tail=IntVar()
@@ -141,13 +148,12 @@ class Lecteur(Frame):
 
 
         self.F_NAs=Frame(self.User_params_cont, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
-        self.F_NAs.grid(row=1,column=0, columnspan=3, sticky="ewns")
+        self.F_NAs.grid(row=2,column=0, columnspan=4, sticky="ewns")
         Grid.columnconfigure(self.F_NAs, 0, weight=100)
         Grid.columnconfigure(self.F_NAs, 1, weight=1)
 
-
         self.Frame_last_row=Frame(self.User_params_cont, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
-        self.Frame_last_row.grid(row=4, column=0, columnspan=3, sticky="sewn")
+        self.Frame_last_row.grid(row=5, column=0, columnspan=4, sticky="sewn")
         Grid.columnconfigure(self.Frame_last_row, 0, weight=1)
         Grid.columnconfigure(self.Frame_last_row, 1, weight=0)
         Grid.columnconfigure(self.Frame_last_row, 2, weight=0)
@@ -155,7 +161,7 @@ class Lecteur(Frame):
         #Save the modified coordinates
 
         Frame_save_quit=Frame(self.User_params_cont, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
-        Frame_save_quit.grid(row=5, column=0, columnspan=3, sticky="sewn")
+        Frame_save_quit.grid(row=6, column=0, columnspan=4, sticky="sewn")
         Grid.columnconfigure(Frame_save_quit, 0, weight=1)
         Grid.columnconfigure(Frame_save_quit, 1, weight=1)
 
@@ -201,11 +207,29 @@ class Lecteur(Frame):
         self.bind_all("<KeyRelease>", self.keyrelease)
         self.bind_all("<Alt-c>",self.copy_IDs)
 
+        self.find_stops()#CTXT
 
+        def bind_to_children(widget):
+            try:
+                widget.bind("<Tab>", self.go_next_ID)
+            except AttributeError:
+                # Some widgets may not support binding
+                pass
+            for child in widget.winfo_children():
+                bind_to_children(child)
+
+        # Start binding from the root window
+        bind_to_children(self.boss)
 
     def copy_data(self, event):
         if event.widget==self.tree and len(self.selected_rows)>0:
             self.copied_cells=[self.selected_ind,self.selected_rows]
+
+            for_clipboard=self.Coos[self.selected_ind, self.selected_rows, :].copy()
+            for_clipboard = '\n'.join(['\t'.join(map(str, row)) for row in for_clipboard])
+            self.clipboard_clear()
+            self.clipboard_append(for_clipboard)
+
         self.afficher_table()
 
 
@@ -227,7 +251,7 @@ class Lecteur(Frame):
     def copy_IDs(self, *args):
         newWindow = Toplevel(self.parent.master)
         interface = Interface_extend.Extend(parent=newWindow, value=self.Vid.Identities, boss=self.main_frame,
-                                            Video_file=self.Vid, type="IDs")
+                                            Video_file=self.Vid, type="IDs", do_self=False)
 
     def keypress(self, event):
         if (event.char=="a" or event.char=="A") and event.widget.winfo_class()!="Entry":
@@ -238,11 +262,62 @@ class Lecteur(Frame):
             self.locked_view= not self.locked_view
             self.modif_image()
 
+        if (event.char=="n" or event.char=="N") and event.widget.winfo_class()!="Entry":
+            self.next_NA()
+
+        if (event.char=="e" or event.char=="E") and event.widget.winfo_class()!="Entry":
+            self.Vid_Lecteur.no_zoom = not self.Vid_Lecteur.no_zoom
+            self.modif_image()
+
+        if (event.char=="d" or event.char=="D") and event.widget.winfo_class()!="Entry":
+            self.add_selected_as_stop()
+            self.modif_image()
+
 
     def keyrelease(self, event):
         if (event.char == "a" or event.char == "A") and event.widget.winfo_class()!="Entry":
             self.show_arenas = False
             self.modif_image()
+
+        elif (event.char == "s" or event.char == "S") and event.widget.winfo_class()!="Entry":
+            self.go_next_stop()
+
+        #elif (event.char == "d" or event.char == "D") and event.widget.winfo_class() != "Entry":
+        #    self.change_sleeping() CTXT
+
+
+    def go_next_stop(self):#CTXT
+        if len(self.all_stops)>0:
+            next_stop=self.all_stops[0]
+            for stop in self.all_stops:
+                if (self.Scrollbar.active_pos + self.to_sub) < round(stop):
+                    next_stop=round(stop)
+                    break
+
+            self.Scrollbar.active_pos = next_stop + self.to_sub
+            self.Scrollbar.refresh()
+
+            self.Vid_Lecteur.update_image(self.Scrollbar.active_pos)
+
+            self.afficher_table()
+            self.Xpos.set(self.selected_ind + 1)
+            self.modif_image(img=self.last_empty, redo=True)
+
+    def add_selected_as_stop(self):
+        try:
+            self.all_stops_verif
+        except:
+            self.all_stops_verif=[]
+
+        for rID in self.selected_rows:
+            if rID not in self.all_stops_verif:
+                self.all_stops_verif.append(rID)
+            else:
+                self.all_stops_verif.remove(rID)
+        self.modif_image()
+        print(self.all_stops_verif)
+
+
 
 
     def On_mousewheel(self, event):
@@ -263,6 +338,7 @@ class Lecteur(Frame):
 
         self.Xpos.set(self.selected_ind+1)
         self.modif_image(img=self.last_empty, redo=True)
+        return "break"
 
 
     def change_ID_name(self,  *args):
@@ -354,7 +430,7 @@ class Lecteur(Frame):
             #Rerun part of the tracking. To do so, a temporary table and a temporary video will be created from the frames to be re-run.
             self.timer=0
 
-            if len(self.Arenas)>1:
+            if len(self.Arenas_with_holes)>1:
                 question = MsgBox.Messagebox(parent=self, title="",
                                              message=self.Messages["Control27"],
                                              Possibilities=[self.Messages["Yes"], self.Messages["No"], self.Messages["Cancel"]])
@@ -403,7 +479,7 @@ class Lecteur(Frame):
 
                         #We open the portion window in which the user will be able to change the parameters of tracking and rerun this part of the video.
                         self.PortionWin = Toplevel()
-                        Interface_portion.Show(parent=self.PortionWin, boss=self, Vid=self.TMP_Vid, Video_liste=self.Video_liste, prev_row=prev_row, Arena=None)
+                        Interface_portion.Show(parent=self.PortionWin, boss=self, Vid=self.TMP_Vid, Video_liste=self.Video_liste, prev_row=prev_row, Arena=None, First_frame=self.Vid.Cropped[1][0])
 
 
                     elif answer==0:
@@ -438,7 +514,7 @@ class Lecteur(Frame):
 
                         #We open the portion window in which the user will be able to change the parameters of tracking and rerun this part of the video.
                         self.PortionWin = Toplevel()
-                        Interface_portion.Show(parent=self.PortionWin, boss=self, Vid=self.TMP_Vid, Video_liste=self.Video_liste, prev_row=prev_row, Arena=self.Vid.Identities[self.selected_ind][0])
+                        Interface_portion.Show(parent=self.PortionWin, boss=self, Vid=self.TMP_Vid, Video_liste=self.Video_liste, prev_row=prev_row, Arena=self.Vid.Identities[self.selected_ind][0], First_frame=self.Vid.Cropped[1][0])
 
     def redo_Lecteur(self):
         #If the Video reader was destroyed (i.e. redo_tracking function), this function allows to rebuild the video reader.
@@ -517,19 +593,41 @@ class Lecteur(Frame):
     def save(self, follow=False):
         #To save the modifications.
         #If follow=True, we save and open the next video
-        self.save_file()
-        self.main_frame.save()
+        try:
+            self.save_file()
+        except Exception as e:
+            Interface_pretracking.CustomDialog(self.main_frame.master,
+                         text="An exception occurred while saving the file:" + str(type(e).__name__) + " – " + str(e),
+                         title="Debugging")
+        try:
+            self.main_frame.save()
+        except Exception as e:
+            Interface_pretracking.CustomDialog(self.main_frame.master,
+                         text="An exception occurred while saving the main_frame:" + str(type(e).__name__) + " – " + str(e),
+                         title="Debugging")
+
         if follow:
             liste_tracked = [Vid for Vid in self.Video_liste if Vid.Tracked]
             next = [Id + 1 for Id, Video in enumerate(liste_tracked) if Video == self.Vid][0]
             if next < (len(liste_tracked)):
                 self.choice_menu.change_vid(liste_tracked[next].User_Name)
                 return
-        self.End_of_window()
+        try:
+            self.End_of_window()
+        except Exception as e:
+            Interface_pretracking.CustomDialog(self.main_frame.master,
+                         text="An exception occurred while closing the window:" + str(type(e).__name__) + " – " + str(e),
+                         title="Debugging")
 
     def End_of_window(self):
         #We destroy the frame and go back to main menu
-        self.Vid_Lecteur.proper_close()
+        try:
+            self.Vid_Lecteur.proper_close()
+        except Exception as e:
+            Interface_pretracking.CustomDialog(self.main_frame.master,
+                         text="An exception occurred while closing the video reader:" + str(type(e).__name__) + " – " + str(e),
+                         title="Debugging")
+
         self.grab_release()
         self.User_params_cont.grid_forget()
         self.User_params_cont.destroy()
@@ -539,14 +637,29 @@ class Lecteur(Frame):
         self.unbind_all("<Control-z>")
         self.unbind_all("<Control-v>")
         self.unbind_all("<Return>")
-        self.unbind_all("<Tab>")
         self.unbind_all("<KeyPress>")
         self.unbind_all("<KeyRelease>")
+
+
+        def unbind_from_children(widget):
+            try:
+                widget.unbind("<Tab>")  # Remove the Tab binding
+            except AttributeError:
+                pass  # Some widgets may not support unbinding
+            for child in widget.winfo_children():
+                unbind_from_children(child)
+
+        # Start unbinding from the root window
+        unbind_from_children(self.boss)
+
+
 
 
 
 
         self.main_frame.return_main()
+        self.main_frame.selected_vid = self.Vid
+        self.main_frame.update_projects
         del self
 
     def save_file(self):
@@ -562,34 +675,43 @@ class Lecteur(Frame):
         #If the user press on the image.
         Ctrl = bool(event.state & 0x4)
         Shift = bool(event.state & 0x1)
+        Alt = bool(event.state & 0x20000)
+
 
         pos=0
         if int(self.Scrollbar.active_pos) >= round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every) and int(self.Scrollbar.active_pos) <= round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every):
-            for ind in range(len(self.Coos)):
-                center = self.Coos[ind,self.Scrollbar.active_pos-self.to_sub]
-                if center[0]!=-1000:
-                    dist_clic=math.sqrt((int(center[0])-Pt[0])**2+(int(center[1])-Pt[1])**2) #If user pressed on the position of a target
-                    if dist_clic<max(2,(10*self.Vid_Lecteur.ratio)):
-                        if Shift and not Ctrl:#If user pressed Shift key, the trajectories of the current target and of the previously selected one are swaped from the current frame to the end of the video.
-                            self.echange_traj(self.selected_ind, ind, self.Scrollbar.active_pos - self.to_sub)
-                        elif Shift and Ctrl:
-                            if ind != self.selected_ind:
-                                self.fus_inds(self.selected_ind, ind)
-                        else: #If not, the clicked pont is the new selected target
-                            self.selected_ind = ind
-                            self.ID_Entry.delete(0, END)
-                            self.ID_Entry.insert(0, self.Vid.Identities[self.selected_ind][1])# Write the name of the target
-                            self.Arena_Lab.config(text=self.Vid.Identities[self.selected_ind][0])# Write the name of the Arena
-                            self.Can_Col.config(background="#%02x%02x%02x" % self.Vid.Identities[self.selected_ind][2])# indicate the color of the new selected target
-                            self.old_pos=self.Coos[self.selected_ind,self.Scrollbar.active_pos-self.to_sub].copy()
-                            self.clicked = True  # If th user wants to move the target, this flag is used to know that user is pressing left.
+            if Alt:
+                old_pos=self.Coos[self.selected_ind, self.Scrollbar.active_pos - self.to_sub].copy()
+                self.Coos[self.selected_ind, self.Scrollbar.active_pos - self.to_sub]=Pt
+                self.add_change("move", self.selected_ind, self.Scrollbar.active_pos - self.to_sub, old_pos)
+                self.modif_image(img=self.last_empty, redo=True)  # Display the changes
 
-                        self.Xpos.set(self.selected_ind + 1)
-                        self.modif_image(img=self.last_empty, redo=True) # Display the changes
+            else:
+                for ind in range(len(self.Coos)):
+                    center = self.Coos[ind,self.Scrollbar.active_pos-self.to_sub]
+                    if center[0]!=-1000:
+                        dist_clic=math.sqrt((int(center[0])-Pt[0])**2+(int(center[1])-Pt[1])**2) #If user pressed on the position of a target
+                        if dist_clic<max(2,(10*self.Vid_Lecteur.ratio)):
+                            if Shift and not Ctrl:#If user pressed Shift key, the trajectories of the current target and of the previously selected one are swaped from the current frame to the end of the video.
+                                self.echange_traj(self.selected_ind, ind, self.Scrollbar.active_pos - self.to_sub)
+                            elif Shift and Ctrl:
+                                if ind != self.selected_ind:
+                                    self.fus_inds(self.selected_ind, ind)
+                            else: #If not, the clicked pont is the new selected target
+                                self.selected_ind = ind
+                                self.ID_Entry.delete(0, END)
+                                self.ID_Entry.insert(0, self.Vid.Identities[self.selected_ind][1])# Write the name of the target
+                                self.Arena_Lab.config(text=self.Vid.Identities[self.selected_ind][0])# Write the name of the Arena
+                                self.Can_Col.config(background="#%02x%02x%02x" % self.Vid.Identities[self.selected_ind][2])# indicate the color of the new selected target
+                                self.old_pos=self.Coos[self.selected_ind,self.Scrollbar.active_pos-self.to_sub].copy()
+                                self.clicked = True  # If th user wants to move the target, this flag is used to know that user is pressing left.
+
+                            self.Xpos.set(self.selected_ind + 1)
+                            self.modif_image(img=self.last_empty, redo=True) # Display the changes
 
 
-                        break
-                pos+=1
+                            break
+                    pos+=1
 
     def echange_traj(self, ind1, ind2, frame, save=True):
         if self.Vid.Identities[ind1][0]==self.Vid.Identities[ind2][0]:
@@ -640,6 +762,44 @@ class Lecteur(Frame):
             self.save_changes = []
             if ind1 == self.copied_cells[0] or ind2==self.copied_cells[0]:
                 self.copied_cells = []
+
+
+    def find_stops(self):#CTXT
+        smoothed_coos=Diverse_functions.smooth_coos(Coos=self.Coos.copy(), window_length=11, polyorder=2)
+        sub_coos=smoothed_coos[self.selected_ind]
+
+        Dists = np.sqrt(np.diff(sub_coos[:, 0]) ** 2 + np.diff(sub_coos[:, 1]) ** 2) / float(self.Vid.Scale[0])
+        Dists = np.append(np.nan, Dists)
+        Speeds = Dists / (1 / self.Vid.Frame_rate[1])
+        State = np.zeros(len(Speeds))
+        State[np.where(Speeds > 15)] = 1
+        State[np.where(np.isnan(Speeds))] = np.nan
+
+        self.all_stops=self.find_inactive()
+
+
+    def find_inactive(self):#Only for me, to delete later
+        try:
+            window_length=int(5*(self.Vid.Frame_rate[1])) #Duration of the window
+            threshold=50#mm if the fished moved less than X
+
+            points_end=self.Coos[self.selected_ind][window_length:]
+            points_beg = self.Coos[self.selected_ind][:-window_length]
+            dist = np.linalg.norm(points_end - points_beg, axis=1) / float(self.Vid.Scale[0])
+            mask = dist <= threshold
+            windows=np.where(mask)[0]
+            print(windows)
+            window_diff = np.diff(windows)
+            window_diff = np.concatenate(([0], window_diff))  # prepend 0 for first window
+            mask_diff = window_diff >= window_length  # True if this is start of new window
+
+            # Extract start indices of merged windows
+            valid_windows = windows[mask_diff]
+
+            return(valid_windows)
+        except:
+            pass
+
 
     def moved_can(self, Pt, Shift):
         #Used to move  a target's position
@@ -821,11 +981,13 @@ class Lecteur(Frame):
             table=self.Frame_coos
 
         self.container_table = Canvas(table, heigh=300, width=300, bd=2, highlightthickness=1, relief='ridge' ,scrollregion=(0,0,500,500), **Color_settings.My_colors.Frame_Base)
-        self.container_table.grid(row=2, column=0, columnspan=2, sticky="nsew")
+        self.container_table.grid(row=3, column=0, columnspan=2, sticky="nsew")
         self.container_table.grid_propagate(False)
-        self.resize_timer=None
-        self.container_table.bind("<Configure>", self.resize_table)
+        self.container_table.bind("<Configure>", self.resize_fr)
         Grid.columnconfigure(self.container_table, 0, weight=1)
+
+    def resize_fr(self, event):
+        self.afficher_table(redo=True)
 
     def create_options(self):
         try:
@@ -889,19 +1051,19 @@ class Lecteur(Frame):
 
         #Button to get the coordinates table in another window
         self.separate_coos=Button(table, text="⧉", command=self.Coos_new_windows, **Color_settings.My_colors.Button_Base)
-        self.separate_coos.grid(row=3,column=2, sticky="se")
+        self.separate_coos.grid(row=4,column=2, sticky="snwe")
 
         #vertical scroll bar
         self.vsb = Scale(table, from_=self.to_sub, to=self.to_sub + len(self.Coos[0]) - 1, orient="vertical",
                          **Color_settings.My_colors.Scale_Base)
-        self.vsb.grid(row=2, column=2, sticky="ns")
+        self.vsb.grid(row=3, column=2, sticky="ns")
         self.vsb.bind("<ButtonRelease-1>", self.move_tree)
 
         self.vsbx = Scale(table, orient="horizontal",
                           command=partial(self.afficher_table, None, True), variable=self.Xpos, from_=1,
                           to=len(self.Vid.Identities), **Color_settings.My_colors.Scale_Base)
         self.vsbx.config()
-        self.vsbx.grid(row=3, column=0, columnspan=2, sticky="ew")
+        self.vsbx.grid(row=4, column=0, columnspan=2, sticky="ew")
 
         #NA button
         self.B_look_NA = Button(options1, text=self.Messages["Control17"], command=self.next_NA,
@@ -914,9 +1076,17 @@ class Lecteur(Frame):
         self.calculate_NA()
 
 
+
+        self.B_look_No_NA = Button(options1, text="Next non-missing value", command=lambda :self.next_NA(reverse=True),
+                                **Color_settings.My_colors.Button_Base)#CTXT
+        self.B_look_No_NA.grid(row=0, column=1, sticky="ew")
+        self.B_look_No_NA.bind("<Enter>", partial(self.HW.change_tmp_message, "click here to jump to the next non-missing value"))#CTXT
+        self.B_look_No_NA.bind("<Leave>", self.HW.remove_tmp_message)
+
+
         #Button to change values for NA
         self.B_change_for_NA=Button(options1, text=self.Messages["Control20"], command=self.change_for_NA, **Color_settings.My_colors.Button_Base)
-        self.B_change_for_NA.grid(row=0,column=1,sticky="ew")
+        self.B_change_for_NA.grid(row=1,columnspan=2,sticky="ew")
         self.B_change_for_NA.bind("<Enter>", partial(self.HW.change_tmp_message, self.Messages["Control21"]))
         self.B_change_for_NA.bind("<Leave>", self.HW.remove_tmp_message)
 
@@ -948,16 +1118,89 @@ class Lecteur(Frame):
         self.bouton_del_ind.bind("<Enter>", partial(self.HW.change_tmp_message, self.Messages["Control25"]))
         self.bouton_del_ind.bind("<Leave>", self.HW.remove_tmp_message)
 
+        #This allow to jump to potential problematic frame allowing user to treat the data faster
+        self.bouton_next_pb = Button(options2, text="Next conflict",#CTXT
+                                     command=self.next_pb,
+                                     **Color_settings.My_colors.Button_Base)
+        self.bouton_next_pb.grid(row=0, column=4, sticky="we")
+        self.bouton_next_pb.bind("<Enter>", partial(self.HW.change_tmp_message, "Write something here"))#CTXT
+        self.bouton_next_pb.bind("<Leave>", self.HW.remove_tmp_message)
+
         #
 
-    def resize_table(self, event):
-        # Cancel any existing timer
-        if self.resize_timer is not None:
-            self.after_cancel(self.resize_timer)
+    def next_pb(self):
+        Inds_to_check=list(range(self.selected_ind,len(self.Coos)))+list(range(0, self.selected_ind))+[self.selected_ind]
 
-        # Set a new timer to call the resize_done method after 500 ms
+        found=0
+        first=True
+        for ind in Inds_to_check:
+            Copy_Coos = self.Coos[ind].copy()
+            if first:
+                Copy_Coos = Copy_Coos[(self.Scrollbar.active_pos - self.to_sub + 1):len(Copy_Coos)]
+                add=self.Scrollbar.active_pos - self.to_sub + 1
+            else:
+                add=0
 
-        self.resize_timer = self.after(500, lambda: self.afficher_table(redo=True))
+            Copy_Coos[np.where(Copy_Coos == -1000)] = np.nan
+            Dists = np.sqrt(np.diff(Copy_Coos[:, 0]) ** 2 + np.diff(Copy_Coos[:, 1]) ** 2) / float(self.Vid.Scale[0])
+            Dists = np.append(np.nan, Dists)
+
+            val=np.nanstd(Dists)/10
+
+            Missing=[]
+
+            kf = cv2.KalmanFilter(4, 1)
+            kf.measurementMatrix = np.array([[1, 0, 0, 0]], np.float32)
+            kf.transitionMatrix = np.array(
+                [[1, 0, 1, 0], [0, 1, 0, 1], [0, 0,1, 0], [0, 0, 0, 1]], np.float32
+            )
+            kf.processNoiseCov = np.array(
+                [[val, 0, 0, 0], [0, val, 0, 0], [0, 0, val, 0], [0, 0, 0, val]], np.float32
+            ) * 0.5
+            kf.measurementNoiseCov = np.array([[val]], np.float32)  # Adjusted noise covariance
+
+            kf.statePre = np.zeros((4, 1), np.float32)
+            kf.errorCovPre = np.eye(4, dtype=np.float32)
+
+            for dist in range(len(Dists)-1):
+                # Predict the next state
+                kf.predict()
+                if not np.isnan(Dists[dist]):
+                    measurement=np.array([Dists[dist]], np.float32).reshape(1, 1)
+                    kf.correct(measurement)
+                    estimate = kf.statePost
+                    estimate[0]=max(0, estimate[0])
+
+                    # Calculate 95% confidence interval
+                    P = kf.errorCovPost
+                    error = P[0, 0]  # Standard deviation for x
+
+                    if Dists[dist+1] > estimate[0] + (error * 100):
+                        Missing.append(dist+1)
+                        found=1
+                        next_pos=Missing[0]-1 + add
+                        new_ind=ind
+
+                if found:
+                    break
+
+            first=False
+
+        if found:
+            self.Scrollbar.active_pos = next_pos + self.to_sub
+            self.Scrollbar.refresh()
+            self.Vid_Lecteur.update_image(self.Scrollbar.active_pos)
+
+            self.selected_ind=new_ind
+            self.ID_Entry.delete(0, END)
+            self.ID_Entry.insert(0, self.Vid.Identities[self.selected_ind][1])  # Write the name of the target
+            self.Arena_Lab.config(text=self.Vid.Identities[self.selected_ind][0])  # Write the name of the Arena
+            self.Can_Col.config(background="#%02x%02x%02x" % self.Vid.Identities[self.selected_ind][2])  # indicate the color of the new selected target
+
+            self.afficher_table()
+            self.Xpos.set(self.selected_ind + 1)
+            self.modif_image(img=self.last_empty, redo=True)
+
 
 
     def afficher_table(self, actual_pos=None, redo=False, windowing=False, *args):
@@ -973,6 +1216,7 @@ class Lecteur(Frame):
         except:
             pass
 
+        self.table_heigh = round(self.container_table.winfo_height() / 20)
 
         if actual_pos==None:
             actual_pos=self.Scrollbar.active_pos #What are the row to show
@@ -996,7 +1240,6 @@ class Lecteur(Frame):
 
             inds_to_show=list(range(self.Xpos.get()-1,min(self.Xpos.get()+10, len(self.Vid.Identities))))
 
-
             Present_now=np.concatenate(self.who_is_here[deb + actual_pos - self.to_sub : end + actual_pos - self.to_sub])
             Present_now=list(np.unique(Present_now))
 
@@ -1012,11 +1255,7 @@ class Lecteur(Frame):
                 self.columns_to_hide_tmp=self.column_to_hide.copy()
                 Ind_to_show = inds_to_show
 
-
-
             if redo:
-                self.table_heigh = round(self.container_table.winfo_height() / 20)
-
                 self.resize=False
                 try:#If the tree is not created yet
                     self.tree.destroy()
@@ -1028,10 +1267,8 @@ class Lecteur(Frame):
                # Fill the table
                 self.tree=ttk.Treeview(self.container_table, heigh=self.table_heigh)
 
-
                 if windowing==1:
                     self.create_options()
-
 
                 self.tree["columns"]=tuple(["Frame"]+["Ar_" +str(self.Vid.Identities[ind][0])+ " " + str(self.Vid.Identities[ind][1]) for ind in inds_to_show])
                 self.tree.heading('#0', text='', anchor=CENTER)
@@ -1056,6 +1293,7 @@ class Lecteur(Frame):
             for row in range(deb, end):
                 is_current=False
                 is_NA=False
+                is_stopped=False
                 pos_in_coos = row + actual_pos - self.to_sub
                 self.vals_in_table.append(pos_in_coos)
                 if pos_in_coos==displayed_frame:
@@ -1063,6 +1301,12 @@ class Lecteur(Frame):
                     is_current=True
                 else:
                     Rnum = str(row + actual_pos)
+
+                try:
+                    if row+actual_pos-self.to_sub in self.all_stops_verif:
+                        is_stopped=True
+                except:
+                    pass
 
 
 
@@ -1076,15 +1320,15 @@ class Lecteur(Frame):
 
                     if (ind == self.selected_ind and pos_in_coos==displayed_frame):
                         if self.Coos[ind,row+actual_pos-self.to_sub,0]!=-1000:
-                            Pos=Pos+["*" +copy_info+ str(round(self.Coos[ind,row+actual_pos-self.to_sub,0],2)) + " " + str(round(self.Coos[ind,row+actual_pos-self.to_sub,1],2)) +copy_info+ "*"]
+                            Pos=Pos+["*" +copy_info+ str(round(self.Coos[ind,row+actual_pos-self.to_sub,0],2)) + " " + str(round(self.Coos[ind,row+actual_pos-self.to_sub,1],2)) +copy_info+ "*"]# + " - " + str(self.Coos[ind,row+actual_pos-self.to_sub,2])
                         else:
-                            Pos = Pos + ["*"+copy_info+"NA NA"+copy_info+"*"]
+                            Pos = Pos + ["*"+copy_info+"NA NA"+copy_info+"*" ]#+ " - " + str(self.Coos[ind,row+actual_pos-self.to_sub,2])
                             is_NA=True
                     else:
                         if self.Coos[ind, row + actual_pos - self.to_sub, 0] != -1000:
-                            Pos=Pos+[copy_info+str(round(self.Coos[ind,row+actual_pos-self.to_sub,0],2))+" "+str(round(self.Coos[ind,row+actual_pos-self.to_sub,1],2))+copy_info]
+                            Pos=Pos+[copy_info+str(round(self.Coos[ind,row+actual_pos-self.to_sub,0],2))+" "+str(round(self.Coos[ind,row+actual_pos-self.to_sub,1],2))+copy_info]#+ " - " + str(self.Coos[ind,row+actual_pos-self.to_sub,2])
                         else:
-                            Pos = Pos + [copy_info+"NA NA"+copy_info]
+                            Pos = Pos + [copy_info+"NA NA"+copy_info ]#+ " - " + str(self.Coos[ind,row+actual_pos-self.to_sub,2])
                             is_NA=True
 
                 new_row=[Rnum]+Pos
@@ -1094,14 +1338,25 @@ class Lecteur(Frame):
                 except:
                     self.tree.item(cnt, text='', values=new_row, tags=('NAs'))
 
-                if is_NA and is_current:
-                    self.tree.item(cnt, tags=('NAs','Current'))
-                elif is_NA and not is_current:
-                    self.tree.item(cnt, tags=('NAs', 'Not_Current'))
-                elif not is_NA and is_current:
-                    self.tree.item(cnt, tags=('Normal', 'Current'))
-                elif not is_NA and not is_current:
-                    self.tree.item(cnt, tags=('Normal', 'Not_Current'))
+
+                tags=[]
+                if is_NA and not is_stopped:
+                    tags.append("NAs")
+                elif is_NA and is_stopped:
+                    tags.append("Stopped_NA")
+                elif not is_NA and is_stopped:
+                    tags.append("Stopped")
+                else:
+                    tags.append("Normal")
+
+                if is_current:
+                    tags.append("Current")
+                else:
+                    tags.append("Not_Current")
+
+
+
+                self.tree.item(cnt, tags=tags)
 
                 cnt+=1
 
@@ -1110,6 +1365,9 @@ class Lecteur(Frame):
                 self.tree["displaycolumns"]=["Frame"]+["Ar_" + str(self.Vid.Identities[int(Ind_s)][0]) + " " + str(self.Vid.Identities[int(Ind_s)][1]) for Ind_s in Ind_to_show]
 
             self.tree.tag_configure('NAs', background=Color_settings.My_colors.list_colors["NAs"], foreground=Color_settings.My_colors.list_colors["Fg_NAs"])
+            self.tree.tag_configure('Stopped_NA', background=Color_settings.My_colors.list_colors["Stopped_NA"],foreground=Color_settings.My_colors.list_colors["Fg_NAs"])
+            self.tree.tag_configure('Stopped', background=Color_settings.My_colors.list_colors["Stopped"],foreground=Color_settings.My_colors.list_colors["Fg_NAs"])
+
             self.tree.tag_configure('Normal', background=Color_settings.My_colors.list_colors["Table1"], foreground=Color_settings.My_colors.list_colors["Fg_T1"])
             self.tree.tag_configure('Current', font=('Arial', 10, 'bold'))
             self.tree.tag_configure('Not_Current', font=('Arial', 10))
@@ -1223,6 +1481,7 @@ class Lecteur(Frame):
                             self.afficher_table(redo=True)
                             self.modif_image()
 
+
     def redo_who_is_here(self):
         if self.Vid.Track[1][8]:
             self.who_is_here=[list(range(len(self.Vid.Identities)))] * len(self.Coos[0, :, 0])
@@ -1230,41 +1489,65 @@ class Lecteur(Frame):
             for row in range(len(self.Coos[0])):
                 self.who_is_here[row]=list(np.where(self.Coos[:,row,0]!=-1000)[0])
 
-    def next_NA(self):
+
+    def next_NA(self, reverse=False):
         # If the user want to jump toward the next NA value, move_to =True
         self.do_Blancs(range(len(self.Coos)))
-
         found = False
         first=True
         ind_done = 0
         cur_ind = self.selected_ind
-        while found == False and ind_done <= len(self.Coos):
-            if len(self.Blancs[cur_ind]) > 0:
-                try:
-                    if cur_ind==self.selected_ind and first:
-                        next_pb = next(blanc[0] for blanc in self.Blancs[cur_ind] if blanc[0] > self.Scrollbar.active_pos - self.to_sub)
-                        new_ind=cur_ind
-                        found = True
-                    else:
-                        next_pb = self.Blancs[cur_ind][0][0]
-                        new_ind = cur_ind
-                        found = True
-                except:
-                    first=False
-                    pass
 
-            ind_done += 1
-            cur_ind += 1
+        next_ind=  cur_ind + 1
+        if next_ind >= len(self.Coos):
+            next_ind = 0
 
-            if cur_ind>=len(self.Coos):
-                cur_ind=0
+        if reverse and (self.Scrollbar.active_pos - self.to_sub + 1)<len(self.Coos[self.selected_ind]) and self.Coos[self.selected_ind][self.Scrollbar.active_pos - self.to_sub + 1][0]>-1:
+            next_pb=self.Scrollbar.active_pos - self.to_sub +1
+            new_ind=cur_ind
+            found=True
+
+        elif reverse and (self.Scrollbar.active_pos - self.to_sub + 1)==len(self.Coos[self.selected_ind]) and self.Coos[next_ind][0][0]>-1:
+            next_pb=0
+            new_ind = next_ind
+            found=True
+
+        else:
+            while found == False and ind_done <= len(self.Coos):
+                if len(self.Blancs[cur_ind]) > 0:
+                    try:
+                        if cur_ind==self.selected_ind and first:
+                            if not reverse:
+                                next_pb = next(blanc[0] for blanc in self.Blancs[cur_ind] if blanc[0] > self.Scrollbar.active_pos - self.to_sub)
+                            else:
+                                next_pb = next(blanc[1] for blanc in self.Blancs[cur_ind] if
+                                               blanc[1] > self.Scrollbar.active_pos - self.to_sub)
+                            new_ind=cur_ind
+                            found = True
+                        else:
+                            if not reverse:
+                                next_pb = self.Blancs[cur_ind][0][0]
+                            else:
+                                next_pb = self.Blancs[cur_ind][0][1]
+                            new_ind = cur_ind
+                            found = True
+                    except:
+                        first=False
+                        pass
+
+                ind_done += 1
+                cur_ind += 1
+
+                if cur_ind>=len(self.Coos):
+                    cur_ind=0
 
         if found:
             self.Scrollbar.active_pos = next_pb + self.to_sub
             self.Scrollbar.refresh()
-            self.Vid_Lecteur.update_image(self.Scrollbar.active_pos)
-
             self.selected_ind=new_ind
+
+            self.Vid_Lecteur.update_image(self.Scrollbar.active_pos+1)
+
             self.ID_Entry.delete(0, END)
             self.ID_Entry.insert(0, self.Vid.Identities[self.selected_ind][1])  # Write the name of the target
             self.Arena_Lab.config(text=self.Vid.Identities[self.selected_ind][0])  # Write the name of the Arena
@@ -1315,7 +1598,7 @@ class Lecteur(Frame):
     def change_for_NA(self):
         #If the user wants to attribute NA values:
         old=self.Coos[self.selected_ind, self.selected_rows, :].copy()
-        self.Coos[self.selected_ind, self.selected_rows, :]=-1000
+        self.Coos[self.selected_ind, self.selected_rows, 0:2]=-1000
         self.calculate_NA()
         self.add_change("removed", self.selected_ind, self.selected_rows,old)
 
@@ -1327,6 +1610,32 @@ class Lecteur(Frame):
                 pass
 
         self.modif_image()
+        self.afficher_table()
+
+    def change_sleeping(self):#CTXT
+        self.Coos[self.selected_ind,self.selected_rows,2]=1 - self.Coos[self.selected_ind,self.selected_rows,2]
+        self.afficher_table()
+
+    def select_no_zoom(self, limits):
+        selected_coords = self.Coos[self.selected_ind]
+
+        condition = (
+                (selected_coords[:, 0] > limits[0]) &
+                (selected_coords[:, 0] < limits[2]) &
+                (selected_coords[:, 1] > limits[1]) &
+                (selected_coords[:, 1] < limits[3])
+        )
+
+        # Update the coordinates at these indices
+        old = self.Coos[self.selected_ind][np.where(condition)[0]].copy()
+        self.Coos[self.selected_ind][np.where(condition)[0]] = -1000
+        self.add_change("removed", self.selected_ind, np.where(condition)[0], old)
+
+
+        self.afficher_table()
+        self.modif_image(img=self.last_empty, redo=True)
+
+
 
     def load_Vid(self, new_Vid):
         #Load a video
@@ -1355,7 +1664,7 @@ class Lecteur(Frame):
 
         #Difference in frame between the first frame of the video and the first frame of the table
         if self.Vid.Cropped[0]:
-            self.to_sub = math.ceil(((self.Vid.Cropped[1][0])/self.Vid_Lecteur.one_every))
+            self.to_sub = round(((self.Vid.Cropped[1][0])/self.Vid_Lecteur.one_every))
         else:
             self.to_sub = 0
 
@@ -1548,6 +1857,100 @@ class Lecteur(Frame):
         self.save_changes=[]
         self.copied_cells = []
 
+
+    def draw_over(self, img, Xadd,Yadd,ratio):
+        if self.Scrollbar.active_pos >= round(((self.Vid.Cropped[1][0])/self.Vid_Lecteur.one_every)) and self.Scrollbar.active_pos <= round(self.Vid.Cropped[1][1]/self.Vid_Lecteur.one_every):
+            if not self.Vid.Track[1][8]:
+                corr_Ars=[]
+                for Ar in self.Arenas_with_holes:
+                    new_ar=Ar.copy()
+                    new_ar=new_ar.reshape(-1, 2)
+                    new_ar[:, 0]  +=Xadd
+                    new_ar[:, 1] += Yadd
+                    new_ar=new_ar/ratio
+                    corr_Ars.append(new_ar.reshape(-1, 1, 2).astype(np.int32))
+                cv2.drawContours(img, corr_Ars,-1,(150,0,200),3)
+
+            window_length=min(int(self.tail_size.get()*self.Vid.Frame_rate[1]), int(self.Scrollbar.active_pos - self.to_sub))
+            all_ind_available=self.who_is_here[self.Scrollbar.active_pos - self.to_sub-window_length:int(self.Scrollbar.active_pos - self.to_sub+1)]
+            unique_inds = set().union(*all_ind_available)
+            for ind in unique_inds:
+                color=self.Vid.Identities[ind][2]
+
+                if not self.show_all:
+                    for prev in range(min(int(self.tail_size.get()*self.Vid.Frame_rate[1]), int(self.Scrollbar.active_pos - self.to_sub))):
+                        if int(self.Scrollbar.active_pos - prev) > round(self.Vid.Cropped[1][0]/self.Vid_Lecteur.one_every) and int(self.Scrollbar.active_pos) <= round(self.Vid.Cropped[1][1]/self.Vid_Lecteur.one_every):
+                            if self.Coos[ind][int(self.Scrollbar.active_pos - 1 - prev - self.to_sub)][0] != -1000 and self.Coos[ind][int(self.Scrollbar.active_pos - prev - self.to_sub)][0] != -1000 :
+                                TMP_tail_1 = (int((self.Coos[ind,int(self.Scrollbar.active_pos - 1 - prev - self.to_sub),0]+Xadd)/ratio),
+                                              int((self.Coos[ind,int(self.Scrollbar.active_pos - 1 - prev - self.to_sub),1]+Yadd)/ratio))
+
+                                TMP_tail_2 = (int((self.Coos[ind,int(self.Scrollbar.active_pos - prev - self.to_sub),0]+Xadd)/ratio),
+                                              int((self.Coos[ind,int(self.Scrollbar.active_pos - prev - self.to_sub),1]+Yadd)/ratio))
+                                cv2.line(img, TMP_tail_1, TMP_tail_2, color, 2)
+
+                else:
+                    for prev in range(1,int((self.Vid.Cropped[1][1]-self.Vid.Cropped[1][0])/self.Vid_Lecteur.one_every)):
+                        if self.Coos[ind,int(((self.Vid.Cropped[1][1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub),0] != -1000 and \
+                                self.Coos[ind,int(((self.Vid.Cropped[1][1]) / self.Vid_Lecteur.one_every) - prev - self.to_sub),0] != -1000:
+
+                            TMP_tail_1 = (
+                            int((self.Coos[ind,int(((self.Vid.Cropped[1][1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub),0]+Xadd)/ratio),
+                            int((self.Coos[ind,int(((self.Vid.Cropped[1][1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub),1]+Yadd)/ratio))
+
+                            TMP_tail_2 = (
+                            int((self.Coos[ind,int(((self.Vid.Cropped[1][1]) / self.Vid_Lecteur.one_every) - prev - self.to_sub),0]+Xadd)/ratio),
+                            int((self.Coos[ind,int(((self.Vid.Cropped[1][1]) / self.Vid_Lecteur.one_every) - prev - self.to_sub),1]+Yadd)/ratio))
+
+                            cv2.line(img, TMP_tail_1, TMP_tail_2, color, 2)
+
+                center=self.Coos[ind,self.Scrollbar.active_pos - self.to_sub].copy()
+                if center[0]!=-1000:
+                    center[0] = (center[0] + Xadd) / ratio
+                    center[1] = (center[1] + Yadd) / ratio
+                    if self.selected_ind==ind:
+                        cv2.circle(img, (int(center[0]), int(center[1])), radius=6, color=(255,255,255),thickness=-1)
+                        cv2.circle(img, (int(center[0]), int(center[1])), radius=5, color=(0,0,0), thickness=-1)
+                    cv2.circle(img,(int(center[0]),int(center[1])),radius=3,color=color,thickness=-1)
+
+            for ind in self.who_is_here[self.Scrollbar.active_pos - self.to_sub]:
+                if self.Scrollbar.active_pos - min(int(self.tail_size.get()*self.Vid.Frame_rate[1]), int(self.Scrollbar.active_pos - self.to_sub)) == round(self.Vid.Cropped[1][0]/self.Vid_Lecteur.one_every) or self.show_all:
+                    if self.Coos[ind][0][0]!=-1000:
+                        cv2.circle(img,(int((self.Coos[ind][0][0]+Xadd)/ratio),int((self.Coos[ind][0][1]+Yadd)/ratio)),radius=1,color=(0,255,0),thickness=-1)
+
+                if self.Scrollbar.active_pos  == round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every) or self.show_all:
+                    if self.Coos[ind][len(self.Coos[0])-1][0] != -1000:
+                        cv2.circle(img, (int((self.Coos[ind][len(self.Coos[0])-1][0]+Xadd)/ratio), int((self.Coos[ind][len(self.Coos[0])-1][1]+Yadd)/ratio)),
+                                             radius=1,color=(183,28,28), thickness=-1)
+
+
+        if self.show_arenas:
+            corr_Ars = []
+            for Ar in self.Arenas_with_holes:
+                new_ar = Ar.copy()
+                new_ar = new_ar.reshape(-1, 2)
+                new_ar[:, 0] += Xadd
+                new_ar[:, 1] += Yadd
+                new_ar = new_ar / ratio
+                corr_Ars.append(new_ar.reshape(-1, 1, 2).astype(np.int32))
+
+            cv2.drawContours(img, corr_Ars, -1, (255, 255, 255), 2)
+            cv2.drawContours(img, corr_Ars, -1, (150, 0, 0), 2)
+            for Ar in range(len(corr_Ars)):
+                x, y, w, h = cv2.boundingRect(corr_Ars[Ar])
+                (wT, hT), _ = cv2.getTextSize(str(Ar), fontFace=cv2.FONT_HERSHEY_DUPLEX,
+                                            fontScale=1, thickness=4)
+                # Name of arenas is written here
+                cv2.putText(img, str(Ar), (
+                x + int(w/2) - int(wT/2) + Xadd, y + int(h/2) + Yadd),
+                                                 cv2.FONT_HERSHEY_DUPLEX, 1, (255, 255, 255),4)
+
+                cv2.putText(img, str(Ar), (
+                x + int(w/2) - int(wT/2) + Xadd, y + int(h/2)+ Yadd) ,
+                                                 cv2.FONT_HERSHEY_DUPLEX, 1, (150, 0, 0),2)
+
+
+
+
     def modif_image(self, img=[], actual_pos=None, redo=False, **args):
         #Draw trajectories on teh top of the frame to be displayed
         self.afficher_table(actual_pos=actual_pos, redo=redo)
@@ -1564,79 +1967,8 @@ class Lecteur(Frame):
         if self.Vid.Stab[0]:
             new_img = Class_stabilise.find_best_position(Vid=self.Vid, Prem_Im=self.Vid_Lecteur.Prem_image_to_show, frame=new_img, show=False, prev_pts=self.prev_pts)
 
-        if self.Scrollbar.active_pos >= round(((self.Vid.Cropped[1][0])/self.Vid_Lecteur.one_every)) and self.Scrollbar.active_pos <= round(self.Vid.Cropped[1][1]/self.Vid_Lecteur.one_every):
-            if not self.Vid.Track[1][8]:
-                cv2.drawContours(new_img, self.Arenas,-1,(150,0,200),max(1,int(2*self.Vid_Lecteur.ratio)))
-            for ind in self.who_is_here[self.Scrollbar.active_pos - self.to_sub]:
-                color=self.Vid.Identities[ind][2]
-
-                if not self.show_all:
-                    for prev in range(min(int(self.tail_size.get()*self.Vid.Frame_rate[1]), int(self.Scrollbar.active_pos - self.to_sub))):
-                        if int(self.Scrollbar.active_pos - prev) > round(self.Vid.Cropped[1][0]/self.Vid_Lecteur.one_every) and int(self.Scrollbar.active_pos) <= round(self.Vid.Cropped[1][1]/self.Vid_Lecteur.one_every):
-                            if self.Coos[ind][int(self.Scrollbar.active_pos - 1 - prev - self.to_sub)][0] != -1000 and self.Coos[ind][int(self.Scrollbar.active_pos - prev - self.to_sub)][0] != -1000 :
-                                TMP_tail_1 = (int(self.Coos[ind,int(self.Scrollbar.active_pos - 1 - prev - self.to_sub),0]),
-                                              int(self.Coos[ind,int(self.Scrollbar.active_pos - 1 - prev - self.to_sub),1]))
-
-                                TMP_tail_2 = (int(self.Coos[ind,int(self.Scrollbar.active_pos - prev - self.to_sub),0]),
-                                              int(self.Coos[ind,int(self.Scrollbar.active_pos - prev - self.to_sub),1]))
-                                new_img = cv2.line(new_img, TMP_tail_1, TMP_tail_2, color, max(int(3*self.Vid_Lecteur.ratio),1))
-
-                else:
-                    for prev in range(1,int((self.Vid.Cropped[1][1]-self.Vid.Cropped[1][0])/self.Vid_Lecteur.one_every)):
-                        if self.Coos[ind,int(((self.Vid.Cropped[1][1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub),0] != -1000 and \
-                                self.Coos[ind,int(((self.Vid.Cropped[1][1]) / self.Vid_Lecteur.one_every) - prev - self.to_sub),
-                                    0] != -1000:
-                            TMP_tail_1 = (
-                            int(self.Coos[ind,int(((self.Vid.Cropped[1][1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub),0]),
-                            int(self.Coos[ind,int(((self.Vid.Cropped[1][1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub),1]))
-
-                            TMP_tail_2 = (
-                            int(self.Coos[ind,int(((self.Vid.Cropped[1][1]) / self.Vid_Lecteur.one_every) - prev - self.to_sub),0]),
-                            int(self.Coos[ind,int(((self.Vid.Cropped[1][1]) / self.Vid_Lecteur.one_every) - prev - self.to_sub),1]))
-
-                            new_img = cv2.line(new_img, TMP_tail_1, TMP_tail_2, color, max(int(3*self.Vid_Lecteur.ratio),1))
-
-                center=self.Coos[ind,self.Scrollbar.active_pos - self.to_sub]
-                if center[0]!=-1000:
-                    if self.selected_ind==ind:
-                        new_img = cv2.circle(new_img, (int(center[0]), int(center[1])), radius=max(int(5*self.Vid_Lecteur.ratio),5), color=(255,255,255),thickness=-1)
-                        new_img = cv2.circle(new_img, (int(center[0]), int(center[1])), radius=max(int(6*self.Vid_Lecteur.ratio),3), color=(0,0,0), thickness=-1)
-                    new_img=cv2.circle(new_img,(int(center[0]),int(center[1])),radius=max(int(4*self.Vid_Lecteur.ratio),1),color=color,thickness=-1)
-
-            for ind in self.who_is_here[self.Scrollbar.active_pos - self.to_sub]:
-                if self.Scrollbar.active_pos - min(int(self.tail_size.get()*self.Vid.Frame_rate[1]), int(self.Scrollbar.active_pos - self.to_sub)) == round(self.Vid.Cropped[1][0]/self.Vid_Lecteur.one_every) or self.show_all:
-                    if self.Coos[ind][0][0]!=-1000:
-                        new_img = cv2.circle(new_img,(int(self.Coos[ind][0][0]),int(self.Coos[ind][0][1])),radius=max(int(2*self.Vid_Lecteur.ratio),1),color=(0,255,0),thickness=-1)
-
-                if self.Scrollbar.active_pos  == round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every) or self.show_all:
-                    if self.Coos[ind][len(self.Coos[0])-1][0] != -1000:
-                        new_img = cv2.circle(new_img, (int(self.Coos[ind][len(self.Coos[0])-1][0]), int(self.Coos[ind][len(self.Coos[0])-1][1])),
-                                             radius=max(int(2 * self.Vid_Lecteur.ratio), 1),color=(183,28,28), thickness=-1)
-
-
-
-        if self.show_arenas:
-            new_img = cv2.drawContours(new_img, self.Arenas_with_holes, -1, (255, 255, 255),
-                                                  max(int(4 * self.Vid_Lecteur.ratio), 1))
-            new_img = cv2.drawContours(new_img, self.Arenas_with_holes, -1, (150, 0, 0),
-                                                  max(int(2 * self.Vid_Lecteur.ratio), 1))
-            for Ar in range(len(self.Arenas)):
-                x, y, w, h = cv2.boundingRect(self.Arenas[Ar])
-                (wT, hT), _ = cv2.getTextSize(str(Ar), fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                            fontScale=self.Vid_Lecteur.ratio, thickness=1)
-                # Number of  target expected in each contour is written here
-                new_img = cv2.putText(new_img, str(Ar), (
-                x + int(w/2) - int(wT/2), y + int(h/2)),
-                                                 cv2.FONT_HERSHEY_DUPLEX, self.Vid_Lecteur.ratio, (255, 255, 255),
-                                                 max(int(4 * self.Vid_Lecteur.ratio), 1))
-
-                new_img = cv2.putText(new_img, str(Ar), (
-                x + int(w/2) - int(wT/2), y + int(h/2)),
-                                                 cv2.FONT_HERSHEY_DUPLEX, self.Vid_Lecteur.ratio, (150, 0, 0),
-                                                 max(int(2 * self.Vid_Lecteur.ratio), 1))
-
-
         self.Vid_Lecteur.afficher_img(new_img, locked=self.locked_view)
+
 
     def show_column_ID(self, event):
         #This function allow to show the name of the column on top of which the user has the mouse

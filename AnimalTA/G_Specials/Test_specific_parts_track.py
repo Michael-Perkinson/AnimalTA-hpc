@@ -1,6 +1,6 @@
 import cv2
 import decord
-from AnimalTA.A_General_tools import Function_draw_mask as Dr, UserMessages, Message_simple_question as MsgBox
+from AnimalTA.A_General_tools import Function_draw_arenas as Dr, UserMessages, Message_simple_question as MsgBox
 from AnimalTA.D_Tracking_process import Function_prepare_images, Function_assign_cnts, security_settings_track
 import numpy as np
 from tkinter import *
@@ -44,6 +44,8 @@ def collect_silhouettes(Vid):
     security_settings_track.capture = decord.VideoReader(Vid.Fusion[Which_part][1])  # Open video
     Prem_image_to_show = security_settings_track.capture[start - Vid.Fusion[Which_part][0]].asnumpy()  # Take the first image
     security_settings_track.capture.seek(0)
+
+
     if Vid.Cropped_sp[0]:
         Prem_image_to_show = Prem_image_to_show[Vid.Cropped_sp[1][0]:Vid.Cropped_sp[1][2],Vid.Cropped_sp[1][1]:Vid.Cropped_sp[1][3]]
 
@@ -70,7 +72,6 @@ def collect_silhouettes(Vid):
     Extracted_cnts = queue.Queue()
     Too_much_frame=threading.Event()
 
+    cnts=Function_prepare_images.Image_modif(Vid, start, end, one_every, Which_part, Prem_image_to_showz, mask, or_bright, Extracted_cnts, Too_much_frame, AD, silhouette=False)
 
-    cnts=Function_prepare_images.Image_modif(Vid, start, end, one_every, Which_part, Prem_image_to_show, mask, or_bright, Extracted_cnts, Too_much_frame, AD, silhouette=False)
-    print(cnts)
 

@@ -1,8 +1,8 @@
 from tkinter import *
 import numpy as np
 import cv2
-from AnimalTA.A_General_tools import Function_draw_mask, UserMessages, Color_settings
-
+from AnimalTA.A_General_tools import Function_draw_arenas, UserMessages, Color_settings
+from AnimalTA.E_Post_tracking.b_Analyses import Functions_Analyses_Speed as FAS
 
 #This file contains classes herited from Frame. They are Frames widgets which will show the characteristics of an element of interest (in the Analyses part) and allow to modify or delete it.
 
@@ -65,9 +65,12 @@ class Row_Point(Frame):
         Title_Latency=Label(self, text=self.Messages["Analyses_details_sp_Lab2"], **Color_settings.My_colors.Label_Base)
         Title_Latency.grid(row=4, column=1, sticky="w")
         Inter_Check_entry = (self.register(self.Check_entry), '%P', '%V')
-        self.Scale_Radius=Entry(self, textvariable=self.Shape[2], validate="all", validatecommand=Inter_Check_entry, **Color_settings.My_colors.Entry_Base)#The user can change here the value of Shape[2]
+
+        self.tmp_shape2 = DoubleVar()
+        self.tmp_shape2.set(Shape[2])
+        self.Scale_Radius=Entry(self, textvariable=self.tmp_shape2, validate="all", validatecommand=Inter_Check_entry, **Color_settings.My_colors.Entry_Base)#The user can change here the value of Shape[2]
         self.Scale_Radius.grid(row=4, column=2, sticky="w")
-        self.Shape[2].trace('w', self.inter_draw)
+        self.tmp_shape2.trace('w', self.inter_draw)
         Label_unit2=Label(self, text=self.main.Vid.Scale[1], **Color_settings.My_colors.Label_Base)
         Label_unit2.grid(row=4, column=3, sticky="w")
         Frame_show2=Frame(self, **Color_settings.My_colors.Frame_Base)
@@ -103,7 +106,22 @@ class Row_Point(Frame):
         Each time, the value is rounded.
         If the value cannot be calculated, the self.main.Calc_speed.calculate_dist_lat returns "NA".
         '''
-        new_vals=self.main.Calc_speed.calculate_dist_lat(parent=self.main, Point=self.Shape[1][0], ind=self.Ind, Dist=self.Shape[2].get())
+        tmp_sh=self.Shape.copy()
+        tmp_Coos=self.main.Coos[self.Ind].copy()
+        tmp_Coos[np.where(tmp_Coos == -1000)] = np.nan
+        Dist_to, Inside = FAS.details_Point(tmp_Coos[:,0], tmp_Coos[:,1], tmp_sh, float(self.main.Vid.Scale[0]))
+        Mean_dist = np.nanmean(Dist_to)
+
+        if len(np.where(Inside > 0)[0]) > 0:
+            Latency=np.where(Inside>0)[0][0] / self.main.Vid.Frame_rate[1]
+            Inside_fixed=FAS.correct_Inside(Inside, 0, len(Inside))
+            Prop_Time= len(np.where(Inside_fixed > 0)[0]) / len(np.where(np.logical_not(np.isnan(Inside_fixed)))[0])
+        else:
+            Latency = "NA"
+            Prop_Time=0
+
+        new_vals = [Mean_dist, Latency, Prop_Time]
+
         if new_vals[0]!="NA":
             self.Mean_dist.set(round(new_vals[0],3))
         else:
@@ -125,12 +143,14 @@ class Row_Point(Frame):
         This function is called when the user want to change the name of the element. It allows to avoid that the same name is assigned twice
         '''
         auto_modif=False
-        if new_val in [shape[3] for shape in self.main.Calc_speed.Areas[self.MArea] if shape!=self.Shape]:
+        if new_val in [shape[3] for shape in self.main.Vid.Analyses[1][self.MArea] if shape!=self.Shape]:
             new_val=new_val+"_1"
             auto_modif=True
         self.Shape[3]=new_val
         if method=="focusout" and auto_modif:
             self.boss.show_results()
+
+        self.boss.modif_image()
         return(True)
 
 
@@ -138,11 +158,11 @@ class Row_Point(Frame):
         '''
         Supress this widget and supress the corresponding element of interest from the list of elements (self.main.Calc_speed.Areas)
         '''
-        for shape in range(len(self.main.Calc_speed.Areas[self.MArea])):
-            if self.main.Calc_speed.Areas[self.MArea][shape] == self.Shape:
-                self.main.Calc_speed.Areas[self.MArea].pop(shape)
+        for shape in range(len(self.main.Vid.Analyses[1][self.MArea])):
+            if self.main.Vid.Analyses[1][self.MArea][shape] == self.Shape:
+                self.main.Vid.Analyses[1][self.MArea].pop(shape)
                 self.boss.show_results()
-                self.boss.show_img()
+                self.boss.modif_image()
                 self.update_infos()
                 self.boss.add_pt = [None]
                 self.boss.menubar.entryconfig(self.Messages["Analyses_details_sp_Menu0"], state="normal")
@@ -156,11 +176,11 @@ class Row_Point(Frame):
         It updates the displayed frame (in that case, the area of the circle around the point of interest is modified)
         '''
         try:
-            float(self.Shape[2].get())
-            if float(self.Shape[2].get())!=0 :
-                self.boss.show_img()
+            if float(self.tmp_shape2.get()) >= 0:
+                self.Shape[2]=self.tmp_shape2.get()
+                self.boss.modif_image()
                 self.update_infos()
-        except:
+        except Exception as e:
             pass
 
     def Check_entry(self, new_val, method):
@@ -204,8 +224,6 @@ class Row_Line(Frame):
         self.Ind=Ind
 
         self.Mean_dist=StringVar()#Average distance to the segment
-        self.Nb_cross=StringVar()#Number of time the target crossed the segment
-        self.Lat_cross=StringVar()#Latency before the first time the target crossed the segment
         self.update_infos()
 
         # Import the language settings
@@ -238,62 +256,34 @@ class Row_Line(Frame):
         Label_unit1=Label(Frame_show, text=self.main.Vid.Scale[1], **Color_settings.My_colors.Label_Base)
         Label_unit1.grid(row=0, column=2, sticky="w")
 
-        # Display the number of time the target crossed the segment
-        Title_nb_cross=Label(self, text=self.Messages["Analyses_details_sp_Lab5"], **Color_settings.My_colors.Label_Base)
-        Title_nb_cross.grid(row=3, column=1, sticky="w")
-        Frame_show2=Frame(self, **Color_settings.My_colors.Frame_Base)
-        Frame_show2.grid(row=4, column=1)
-        Lab_arr2=Label(Frame_show2, text=">", **Color_settings.My_colors.Label_Base)
-        Lab_arr2.grid(row=0, column=0, sticky="w")
-        self.Lab_nb_cross=Label(Frame_show2, textvariable=self.Nb_cross, **Color_settings.My_colors.Label_Base)
-        self.Lab_nb_cross.grid(row=0, column=1, sticky="w")
-
-        # Display the latency before the target crossed the segment for the first time
-        Title_lat_cross=Label(self, text=self.Messages["Analyses_details_sp_Lab6"], **Color_settings.My_colors.Label_Base)
-        Title_lat_cross.grid(row=5, column=1, sticky="w")
-        Frame_show3=Frame(self, **Color_settings.My_colors.Frame_Base)
-        Frame_show3.grid(row=6, column=1)
-        Lab_arr3=Label(Frame_show3, text=">", **Color_settings.My_colors.Label_Base)
-        Lab_arr3.grid(row=0, column=0, sticky="w")
-        self.Lab_lat_cross=Label(Frame_show3, textvariable=self.Lat_cross, **Color_settings.My_colors.Label_Base)
-        self.Lab_lat_cross.grid(row=0, column=1, sticky="w")
-        Label_unit3=Label(Frame_show3, text="sec", **Color_settings.My_colors.Label_Base)
-        Label_unit3.grid(row=0, column=2, sticky="w")
 
 
     def update_infos(self):
         '''This function calculates the three measures of interest to be displayed:
         self.Mean_dist: Average distance to the segment
-        self.Nb_cross: Number of time the target crossed the segment
-        self.Lat_cross: Latency before the first time the target crossed the segment
         Each time, the value is rounded.
         If the value cannot be calculated, the self.main.Calc_speed.calculate_dist_line returns "NA". Same for self.main.Calc_speed.calculate_intersect
         '''
-
-        new_vals=self.main.Calc_speed.calculate_dist_line(parent=self.main, Points=self.Shape[1], ind=self.Ind)
-        Crosses=self.main.Calc_speed.calculate_intersect(Vid=self.main.Vid, Coos=self.main.Coos[self.Ind], Points=self.Shape[1])
-
+        tmp_sh=self.Shape.copy()
+        tmp_Coos=self.main.Coos[self.Ind].copy()
+        tmp_Coos[np.where(tmp_Coos == -1000)] = np.nan
+        Dist_to_line = FAS.details_line(tmp_Coos[:,0], tmp_Coos[:,1], tmp_sh, float(self.main.Vid.Scale[0]))
+        new_vals = np.nanmean(Dist_to_line)
         if new_vals=="NA":
             self.Mean_dist.set("NA")
         else:
             self.Mean_dist.set(round(float(new_vals),3))
 
-        self.Nb_cross.set(Crosses[0])
-
-        if Crosses[2]=="NA":
-            self.Lat_cross.set("NA")
-        else:
-            self.Lat_cross.set(round(float(Crosses[2]),3))
 
     def supress(self):
         '''
         Supress this widget and supress the corresponding element of interest from the list of elements (self.main.Calc_speed.Areas)
         '''
-        for shape in range(len(self.main.Calc_speed.Areas[self.MArea])):
-            if self.main.Calc_speed.Areas[self.MArea][shape] == self.Shape:
-                self.main.Calc_speed.Areas[self.MArea].pop(shape)
+        for shape in range(len(self.main.Vid.Analyses[1][self.MArea])):
+            if self.main.Vid.Analyses[1][self.MArea][shape] == self.Shape:
+                self.main.Vid.Analyses[1][self.MArea].pop(shape)
                 self.boss.show_results()
-                self.boss.show_img()
+                self.boss.modif_image()
                 self.update_infos()
                 self.boss.add_pt = [None]
                 self.boss.menubar.entryconfig(self.Messages["Analyses_details_sp_Menu0"], state="normal")
@@ -305,12 +295,14 @@ class Row_Line(Frame):
         This function is called when the user want to change the name of the element. It allows to avoid that the same name is assigned twice
         '''
         auto_modif=False
-        if new_val in [shape[3] for shape in self.main.Calc_speed.Areas[self.MArea] if shape!=self.Shape]:
+        if new_val in [shape[3] for shape in self.main.Vid.Analyses[1][self.MArea] if shape!=self.Shape]:
             new_val=new_val+"_1"
             auto_modif=True
         self.Shape[3]=new_val
         if method=="focusout" and auto_modif:
             self.boss.show_results()
+
+        self.boss.modif_image()
         return(True)
 
 class Row_All_Border(Frame):
@@ -324,7 +316,7 @@ class Row_All_Border(Frame):
     label=the name of the element (either All_borderX or any other name filled by the user)
     Ind=Which target is selected (the one used to display the metrics relative to that element of interest)
     '''
-    def __init__(self, parent, main, boss,MArea, Shape, Area, label, Ind, **kw):
+    def __init__(self, parent, main, boss,MArea, Shape, label, Ind, Area, **kw):
         Frame.__init__(self, parent, **kw)
         self.config(**Color_settings.My_colors.Frame_Base)
         self.MArea=MArea
@@ -333,6 +325,9 @@ class Row_All_Border(Frame):
         self.Shape=Shape
         self.Ind=Ind
         self.Area=Area
+
+        self.Arenas = Function_draw_arenas.get_arenas(self.main.Vid)
+
 
         self.Mean_dist = StringVar()#Average distance between the target and the closest border
         self.Prop_inside = StringVar()#Proportion of time the taregt spent inside the border's width
@@ -372,9 +367,13 @@ class Row_All_Border(Frame):
         Title_prop_inside=Label(self, text=self.Messages["Analyses_details_sp_Lab8"], **Color_settings.My_colors.Label_Base)
         Title_prop_inside.grid(row=3, column=1, sticky="w")
         Inter_Check_entry = (self.register(self.Check_entry), '%P', '%V')
-        self.Scale_Dist = Entry(self, textvariable=self.Shape[2], validate="all", validatecommand=Inter_Check_entry, **Color_settings.My_colors.Entry_Base)
+
+        self.tmp_shape2=DoubleVar()
+        self.tmp_shape2.set(Shape[2])
+        self.Scale_Dist = Entry(self, textvariable=self.tmp_shape2, validate="all", validatecommand=Inter_Check_entry, **Color_settings.My_colors.Entry_Base)
         self.Scale_Dist.grid(row=3, column=2, sticky="w")
-        self.Shape[2].trace('w', self.inter_draw)
+        self.tmp_shape2.trace('w', self.inter_draw)
+
         Label_unit2=Label(self, text=self.main.Vid.Scale[1], **Color_settings.My_colors.Label_Base)
         Label_unit2.grid(row=3, column=3, sticky="w")
         Frame_show2=Frame(self, **Color_settings.My_colors.Frame_Base)
@@ -387,12 +386,12 @@ class Row_All_Border(Frame):
     def inter_draw(self, *args):
         '''
         This function is called when the value of Shape[2] is modified.
-        It updates the displayed frame (in that case, the borders width will appear in red)
+        It updates the displayed frame (in that case, the area of the circle around the point of interest is modified)
         '''
         try:
-            float(self.Shape[2].get())
-            if float(self.Shape[2].get()) >= 0:
-                self.boss.show_img()
+            if float(self.tmp_shape2.get()) >= 0:
+                self.Shape[2]=self.tmp_shape2.get()
+                self.boss.modif_image()
                 self.update_infos()
         except Exception as e:
             pass
@@ -424,7 +423,21 @@ class Row_All_Border(Frame):
         Each time, the value is rounded.
         If the value cannot be calculated, the self.main.Calc_speed.calculate_dist_border returns "NA".
         '''
-        new_vals=self.main.Calc_speed.calculate_dist_border(parent=self.main, Area=self.Area, ind=self.Ind, shape=self.Shape)
+
+        tmp_sh=self.Shape.copy()
+        tmp_Coos=self.main.Coos[self.Ind].copy()
+        tmp_Coos[np.where(tmp_Coos == -1000)] = np.nan
+        Dist_to, Inside = FAS.details_All_borders(tmp_Coos[:,0], tmp_Coos[:,1], tmp_sh, self.Arenas[self.Area] , float(self.main.Vid.Scale[0]))
+        Mean_dist = np.nanmean(Dist_to)
+
+        if len(np.where(Inside > 0)[0]) > 0:
+            Inside_fixed = FAS.correct_Inside(Inside, 0, len(Inside))
+            Prop_Time = len(np.where(Inside_fixed > 0)[0]) / len(np.where(np.logical_not(np.isnan(Inside_fixed)))[0])
+        else:
+            Prop_Time = 0
+        new_vals = [Mean_dist, Prop_Time]
+
+
         if new_vals[0]=="NA":
             self.Mean_dist.set(new_vals[0])
         else:
@@ -441,11 +454,11 @@ class Row_All_Border(Frame):
         '''
         Supress this widget and supress the corresponding element of interest from the list of elements (self.main.Calc_speed.Areas)
         '''
-        for shape in range(len(self.main.Calc_speed.Areas[self.MArea])):
-            if self.main.Calc_speed.Areas[self.MArea][shape] == self.Shape:
-                self.main.Calc_speed.Areas[self.MArea].pop(shape)
+        for shape in range(len(self.main.Vid.Analyses[1][self.MArea])):
+            if self.main.Vid.Analyses[1][self.MArea][shape] == self.Shape:
+                self.main.Vid.Analyses[1][self.MArea].pop(shape)
                 self.boss.show_results()
-                self.boss.show_img()
+                self.boss.modif_image()
                 self.update_infos()
                 self.boss.add_pt = [None]
                 self.boss.menubar.entryconfig(self.Messages["Analyses_details_sp_Menu0"], state="normal")
@@ -458,13 +471,16 @@ class Row_All_Border(Frame):
         '''
 
         auto_modif=False
-        if new_val in [shape[3] for shape in self.main.Calc_speed.Areas[self.MArea] if shape!=self.Shape]:
+        if new_val in [shape[3] for shape in self.main.Vid.Analyses[1][self.MArea] if shape!=self.Shape]:
             new_val=new_val+"_1"
             auto_modif=True
         self.Shape[3]=new_val
         if method=="focusout" and auto_modif:
             self.boss.show_results()
-        return(True)
+
+        self.boss.modif_image()
+        return (True)
+
 
 class Row_Border(Frame):
     '''
@@ -525,9 +541,12 @@ class Row_Border(Frame):
         Title_prop_inside=Label(self, text=self.Messages["Analyses_details_sp_Lab8"], **Color_settings.My_colors.Label_Base)
         Title_prop_inside.grid(row=3, column=1, sticky="w")
         Inter_Check_entry = (self.register(self.Check_entry), '%P', '%V')
-        self.Scale_Dist = Entry(self, textvariable=self.Shape[2], validate="all", validatecommand=Inter_Check_entry, **Color_settings.My_colors.Entry_Base)
+
+        self.tmp_shape2=DoubleVar()
+        self.tmp_shape2.set(Shape[2])
+        self.Scale_Dist = Entry(self, textvariable=self.tmp_shape2, validate="all", validatecommand=Inter_Check_entry, **Color_settings.My_colors.Entry_Base)
         self.Scale_Dist.grid(row=3, column=2, sticky="w")
-        self.Shape[2].trace('w', self.inter_draw)
+        self.tmp_shape2.trace('w', self.inter_draw)
         Label_unit2=Label(self, text=self.main.Vid.Scale[1], **Color_settings.My_colors.Label_Base)
         Label_unit2.grid(row=3, column=3, sticky="w")
         Frame_show2=Frame(self, **Color_settings.My_colors.Frame_Base)
@@ -559,9 +578,9 @@ class Row_Border(Frame):
         It updates the displayed frame (in that case, the area of the circle around the point of interest is modified)
         '''
         try:
-            float(self.Shape[2].get())
-            if float(self.Shape[2].get()) >= 0:
-                self.boss.show_img()
+            if float(self.tmp_shape2.get()) >= 0:
+                self.Shape[2]=self.tmp_shape2.get()
+                self.boss.modif_image()
                 self.update_infos()
         except Exception as e:
             pass
@@ -597,7 +616,24 @@ class Row_Border(Frame):
         Each time, the value is rounded.
         If the value cannot be calculated, the self.main.Calc_speed.calculate_dist_sep_border returns "NA".
         '''
-        new_vals=self.main.Calc_speed.calculate_dist_sep_border(parent=self.main, shape=self.Shape, ind=self.Ind)
+        tmp_sh = self.Shape.copy()
+        tmp_Coos = self.main.Coos[self.Ind].copy()
+        tmp_Coos[np.where(tmp_Coos == -1000)] = np.nan
+        Dist_to, Inside = FAS.details_Borders(tmp_Coos[:, 0], tmp_Coos[:, 1], tmp_sh,
+                                                                   float(self.main.Vid.Scale[0]))
+        Mean_dist = np.nanmean(Dist_to)
+
+        if len(np.where(Inside > 0)[0]) > 0:
+            Latency=np.where(Inside>0)[0][0] / self.main.Vid.Frame_rate[1]
+            Inside_fixed = FAS.correct_Inside(Inside, 0, len(Inside))
+            Prop_Time = len(np.where(Inside_fixed > 0)[0]) / len(np.where(np.logical_not(np.isnan(Inside_fixed)))[0])
+        else:
+            Prop_Time = 0
+            Latency="NA"
+
+        new_vals = [Mean_dist, Prop_Time, Latency]
+
+
         if new_vals[0]=="NA":
             self.Mean_dist.set(new_vals[0])
         else:
@@ -618,11 +654,11 @@ class Row_Border(Frame):
         '''
         Supress this widget and supress the corresponding element of interest from the list of elements (self.main.Calc_speed.Areas)
         '''
-        for shape in range(len(self.main.Calc_speed.Areas[self.MArea])):
-            if self.main.Calc_speed.Areas[self.MArea][shape] == self.Shape:
-                self.main.Calc_speed.Areas[self.MArea].pop(shape)
+        for shape in range(len(self.main.Vid.Analyses[1][self.MArea])):
+            if self.main.Vid.Analyses[1][self.MArea][shape] == self.Shape:
+                self.main.Vid.Analyses[1][self.MArea].pop(shape)
                 self.boss.show_results()
-                self.boss.show_img()
+                self.boss.modif_image()
                 self.update_infos()
                 self.boss.add_pt = [None]
                 self.boss.menubar.entryconfig(self.Messages["Analyses_details_sp_Menu0"], state="normal")
@@ -634,12 +670,14 @@ class Row_Border(Frame):
         This function is called when the user want to change the name of the element. It allows to avoid that the same name is assigned twice
         '''
         auto_modif=False
-        if new_val in [shape[3] for shape in self.main.Calc_speed.Areas[self.MArea] if shape!=self.Shape]:
+        if new_val in [shape[3] for shape in self.main.Vid.Analyses[1][self.MArea] if shape!=self.Shape]:
             new_val=new_val+"_1"
             auto_modif=True
         self.Shape[3]=new_val
         if method=="focusout" and auto_modif:
             self.boss.show_results()
+
+        self.boss.modif_image()
         return(True)
 
 class Row_Shape(Frame):
@@ -653,7 +691,7 @@ class Row_Shape(Frame):
     label=the name of the element (either EllipseX, RectangleX, PolyX or any other name filled by the user)
     Ind=Which target is selected (the one used to display the metrics relative to that element of interest)
     '''
-    def __init__(self, parent, main, boss, MArea, Shape, label, Ind, **kw):
+    def __init__(self, parent, main, boss, MArea, Shape, label, Ind, Area, **kw):
         Frame.__init__(self, parent, **kw)
         self.config(**Color_settings.My_colors.Frame_Base)
         self.MArea=MArea
@@ -661,6 +699,9 @@ class Row_Shape(Frame):
         self.main=main
         self.Shape=Shape
         self.Ind=Ind
+        self.Area =Area
+
+        self.Arenas = Function_draw_arenas.get_arenas(self.main.Vid)
 
         self.Prop_inside = StringVar()#Proportion of time the target spent inside the element's shape
         self.Lat_inside = StringVar()#Latency before the target enter inside the shape
@@ -714,20 +755,20 @@ class Row_Shape(Frame):
         Each time, the value is rounded.
         If the value cannot be calculated, the self.main.Calc_speed.calculate_dist_lat returns "NA".
         '''
-        if len(self.Shape[1])>0:
-            empty=np.zeros([self.boss.image.shape[0],self.boss.image.shape[1],1], np.uint8)
-            if self.Shape[0]=="Ellipse":
-                Function_draw_mask.Draw_elli(empty, [po[0] for po in self.Shape[1]], [po[1] for po in self.Shape[1]], 255, thick=-1)
-            elif self.Shape[0]=="Rectangle":
-                Function_draw_mask.Draw_rect(empty, [po[0] for po in self.Shape[1]], [po[1] for po in self.Shape[1]], 255, thick=-1)
-            elif self.Shape[0]=="Polygon":
-                Function_draw_mask.Draw_Poly(empty, [po[0] for po in self.Shape[1]], [po[1] for po in self.Shape[1]], 255, thick=-1)
 
-            cnt, _=cv2.findContours(empty, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        tmp_sh = self.Shape.copy()
+        tmp_Coos = self.main.Coos[self.Ind].copy()
+        tmp_Coos[np.where(tmp_Coos == -1000)] = np.nan
+        Dist_to, Inside = FAS.details_shape(tmp_Coos[:, 0], tmp_Coos[:, 1], tmp_sh, float(self.main.Vid.Scale[0]), Vid=self.main.Vid, Arena=self.Arenas[self.Area])
+
+        if len(np.where(Inside > 0)[0]) > 0:
+            Latency=np.where(Inside>0)[0][0] / self.main.Vid.Frame_rate[1]
+            Inside_fixed = FAS.correct_Inside(Inside, 0, len(Inside))
+            Prop_Time = len(np.where(Inside_fixed > 0)[0]) / len(np.where(np.logical_not(np.isnan(Inside_fixed)))[0])
         else:
-            cnt=[]
-
-        new_vals=self.main.Calc_speed.calculate_time_inside(parent=self.main, cnt=cnt, ind=self.Ind)
+            Prop_Time = 0
+            Latency="NA"
+        new_vals = [Prop_Time, Latency]
 
 
         if new_vals[0] == "NA":
@@ -745,11 +786,11 @@ class Row_Shape(Frame):
         '''
         Supress this widget and supress the corresponding element of interest from the list of elements (self.main.Calc_speed.Areas)
         '''
-        for shape in range(len(self.main.Calc_speed.Areas[self.MArea])):
-            if self.main.Calc_speed.Areas[self.MArea][shape] == self.Shape:
-                self.main.Calc_speed.Areas[self.MArea].pop(shape)
+        for shape in range(len(self.main.Vid.Analyses[1][self.MArea])):
+            if self.main.Vid.Analyses[1][self.MArea][shape] == self.Shape:
+                self.main.Vid.Analyses[1][self.MArea].pop(shape)
                 self.boss.show_results()
-                self.boss.show_img()
+                self.boss.modif_image()
                 self.update_infos()
                 self.boss.add_pt = [None]
                 self.boss.menubar.entryconfig(self.Messages["Analyses_details_sp_Menu0"], state="normal")
@@ -761,10 +802,12 @@ class Row_Shape(Frame):
         This function is called when the user want to change the name of the element. It allows to avoid that the same name is assigned twice
         '''
         auto_modif=False
-        if new_val in [shape[3] for shape in self.main.Calc_speed.Areas[self.MArea] if shape!=self.Shape]:
+        if new_val in [shape[3] for shape in self.main.Vid.Analyses[1][self.MArea] if shape!=self.Shape]:
             new_val=new_val+"_1"
             auto_modif=True
         self.Shape[3]=new_val
         if method=="focusout" and auto_modif:
             self.boss.show_results()
+
+        self.boss.modif_image()
         return(True)

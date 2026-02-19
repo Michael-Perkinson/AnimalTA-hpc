@@ -9,7 +9,7 @@ from AnimalTA.A_General_tools import Class_change_vid_menu, Video_loader as VL, 
 
 class Scale(Frame):
     """This Frame allows the user  to define a scale by selecting two points in the video and indicating the distance between them IRL"""
-    def __init__(self, parent, boss, main_frame, Video_file, **kwargs):
+    def __init__(self, parent, boss, main_frame, Video_file, speed, **kwargs):
         Frame.__init__(self, parent, bd=5, **kwargs)
         self.config(**Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
         self.parent=parent
@@ -50,6 +50,8 @@ class Scale(Frame):
 
         self.Vid_Lecteur = Class_Lecteur.Lecteur(self, self.Vid, show_whole_frame=True)
         self.Vid_Lecteur.grid(row=1, column=0, sticky="nsew")
+        self.Vid_Lecteur.speed.set(speed)
+
         self.Scrollbar=self.Vid_Lecteur.Scrollbar
         Grid.columnconfigure(self, 0, weight=1)
         Grid.rowconfigure(self, 0, weight=1)
@@ -230,6 +232,7 @@ class Scale(Frame):
         self.canvas_bt_global.grid_forget()
         self.canvas_bt_global.destroy()
         self.main_frame.return_main()
+        self.boss.select_vid()
 
     def moved_can(self, Pt, Shift):
         #We move a selected point on the image.

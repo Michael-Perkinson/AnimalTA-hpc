@@ -6,12 +6,16 @@ import math
 from sklearn.cluster import KMeans
 from scipy.optimize import linear_sum_assignment
 import numpy as np
+from skimage.morphology import skeletonize
+from scipy.spatial.distance import cdist
+from skimage.graph import route_through_array
 
-
-def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Too_much_frame, Th_extract_cnts, To_save, portion, one_every, AD, use_Kalman=False):
+def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Th_extract_cnts, To_save, portion, one_every, AD, use_Kalman=False, head_tail=False):
     kalmans=[]
 
     all_NA = [False] * len(Arenas)  # Value = True if there is only "NA" in the first frame
+    last_HD_pos = [[["NA", "NA"], ["NA", "NA"]] for a in Arenas]
+
     # We write the first frame:
     all_rows = [["Frame", "Time"]]
 
@@ -21,8 +25,14 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Too_much
         Measured.append([])
         #Individual_measurements.append([])
         for ID_Ind in range(Vid.Track[1][6][ID_AR]):
-            all_rows[0].append("X_Arena" + str(ID_AR) + "_Ind" + str(ID_Ind))
-            all_rows[0].append("Y_Arena" + str(ID_AR) + "_Ind" + str(ID_Ind))
+            if head_tail and Vid.Track[1][6][ID_AR] == 1:
+                all_rows[0].append("X_Arena" + str(ID_AR) + "_Ind" + str(ID_Ind)+"_Head")
+                all_rows[0].append("Y_Arena" + str(ID_AR) + "_Ind" + str(ID_Ind)+"_Head")
+                all_rows[0].append("X_Arena" + str(ID_AR) + "_Ind" + str(ID_Ind)+"_Tail")
+                all_rows[0].append("Y_Arena" + str(ID_AR) + "_Ind" + str(ID_Ind)+"_Tail")
+            else:
+                all_rows[0].append("X_Arena" + str(ID_AR) + "_Ind" + str(ID_Ind))
+                all_rows[0].append("Y_Arena" + str(ID_AR) + "_Ind" + str(ID_Ind))
             #Individual_measurements[ID_AR].append([])
             Measured[ID_AR].append(0)
 
@@ -35,6 +45,7 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Too_much
 
 
     with open(To_save, 'w', newline='', encoding="utf-8") as file:
+
         writer = csv.writer(file, delimiter=";")
 
         while Th_extract_cnts.is_alive() or Extracted_cnts.qsize()>0:#While we are still loading images or there are some extracted images that have not been associated yet
@@ -48,9 +59,13 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Too_much
             new_row.append(int(frame/one_every))#Frame number (after frame rate modification)
             new_row.append(round((frame/one_every)/Vid.Frame_rate[1],2))#Time since the biginning of the video
 
-            for Are in range(len(Arenas)):
-                #Positions = ["NA"]*Vid.Track[1][6][Are]
+            new_row_to_write = []#The nest row that will be saved in the csv file
+            new_row_to_write.append(int(frame/one_every))#Frame number (after frame rate modification)
+            new_row_to_write.append(round((frame/one_every)/Vid.Frame_rate[1],2))#Time since the biginning of the video
 
+            for Are in range(len(Arenas)):
+                Cnt_ID_HD="NA"
+                #Positions = ["NA"]*Vid.Track[1][6][Are]
                 Ar_cnts = []
                 for cnt in range(len(kept_cnts)):
                     cnt_M = cv2.moments(kept_cnts[cnt])
@@ -64,6 +79,7 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Too_much
                     if result >= 0:
                         Ar_cnts.append(
                             [kept_cnts[cnt], (cX, cY)])  # If yes, we save this contour and add it as part of the arena
+
                 if prev_row == None and (frame == start or all_NA[Are]):  # If its is the first row or if no positions were ever known
                     if len(Ar_cnts) > 0:  # If there is at least one contour
                         if len(Ar_cnts) >= Vid.Track[1][6][Are]:
@@ -78,19 +94,24 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Too_much
                             final_cnts = new_pos.tolist()
                             final_cnts = [[[], (nf[0], nf[1])] for nf in final_cnts]
 
-                        final_positions = [cnt_info[1] for cnt_info in final_cnts]  # Final list of contours
+                        if head_tail and Vid.Track[1][6][Are]==1:
+                            Cnt_ID_HD = 0
+                        final_cnts = [cnt_info[1] for cnt_info in final_cnts]  # Final list of contours
                         all_NA[Are] = False
 
                     else:  # If we have no information about the target's previous positions and that ther is no visible contour, we fill the row with NAs
                         final_positions = [["NA", "NA"]] * Vid.Track[1][6][Are]
+                        final_cnts=final_positions.copy()
                         all_NA[Are] = True
 
                 else:  # If we had info about target's positions
                     if prev_row != None and frame == start:  # If we are working with a portion of video (redo part of the track)
                         last_row = prev_row
 
+
                     if len(Ar_cnts) == 0:  # If there are no contours found, fill wih NAs
                         final_cnts = [["NA", "NA"]] * Vid.Track[1][6][Are]
+
                     else:  # Else, fill with "Not_Yet"
                         final_cnts = [["Not_yet"]] * Vid.Track[1][6][Are]
                         table_dists = []  # We make a table that will cross all distances between last known position and current targets' positions
@@ -115,6 +136,8 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Too_much
                         for ind in range(len(row_ind)):
                             if table_dists[row_ind[ind]][col_ind[ind]] < Vid.Track[1][5]:
                                 final_cnts[row_ind[ind]] = Ar_cnts[col_ind[ind]][1]
+                                if head_tail and Vid.Track[1][6][Are] == 1:
+                                    Cnt_ID_HD = col_ind[ind]
                                 #Positions[row_ind[ind]]= col_ind[ind]
                             else:
                                 to_del.append(ind)  # We will remove contours in case they are associated with a target too far from them
@@ -181,16 +204,86 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Too_much
                                     Individual_measurements[Are][ind].append([frame, surface, periphery, max(width, height),min(width,height)])  # Frame of measurement, Area, periphery, length, width
                                 Measured[Are][ind]+=1
                         '''
-                        #If some targets are not correctly asociated because sptlit was impossible:
+                        #If some targets are not correctly asociated because split was impossible:
                         if ["Waiting_sep"] in final_cnts:
                             for cnid in range(len(final_cnts)):
                                 if final_cnts[cnid]==["Waiting_sep"]:
                                     final_cnts[cnid]=["NA","NA"]
 
 
-                    final_positions = final_cnts.copy()
+
+                if head_tail and Vid.Track[1][6][Are] == 1 :
+                    if Cnt_ID_HD!="NA":
+                        cnt=Ar_cnts[Cnt_ID_HD][0]
+
+                        x, y, w, h = cv2.boundingRect(cnt)
+                        cnt_img = np.zeros((h + 2, w + 2), dtype=np.uint8)
+                        contour_shifted = cnt - [x - 1, y - 1]
+                        cv2.drawContours(cnt_img, [contour_shifted], -1, (255), thickness=cv2.FILLED)
+                        skeleton = skeletonize(cnt_img).astype(np.uint8)
+                        kernel = np.array([[1, 1, 1], [1, 10, 1], [1, 1, 1]])
+                        neighbors = cv2.filter2D(skeleton.astype(np.uint8), -1, kernel)  # Convolution to count neighbors
+                        endpoints = np.argwhere(neighbors == 11)  # 11 corresponds to 1 neighbor
+
+                        if len(endpoints) > 0:
+                            if len(endpoints)>2:
+                                cost_array = np.where(skeleton > 0, 1, np.inf)  # Set infinite cost for non-skeleton pixels
+                                max_path_length = 0
+                                for i in range(len(endpoints)):
+                                    for j in range(i + 1, len(endpoints)):
+                                        p1, p2 = endpoints[i], endpoints[j]
+                                        indices, _ = route_through_array(cost_array, tuple(p1), tuple(p2), fully_connected=True)
+                                        if len(indices) > max_path_length:
+                                            max_path_length = len(indices)
+                                            endpoint1, endpoint2 = p1, p2
+
+                            elif len(endpoints)==2:
+                                endpoint1, endpoint2 = endpoints[0], endpoints[1]
+                            else:
+                                endpoint1 = endpoints[0]
+                                endpoint2 = np.argwhere(neighbors == np.max(neighbors))[0]
+
+                            endpoint1[1] += x
+                            endpoint1[0] += y
+
+                            endpoint2[1] += x
+                            endpoint2[0] += y
+
+
+
+                        else:
+                            endpoint1 = [Ar_cnts[Cnt_ID_HD][1][1],Ar_cnts[Cnt_ID_HD][1][0]]
+                            endpoint2 = endpoint1
+
+
+                        head_coos = (endpoint1[1], endpoint1[0])
+                        tail_coos = (endpoint2[1], endpoint2[0])
+
+                        HD_Coos=[head_coos,tail_coos]
+
+                        if last_HD_pos[Are][0][0]=="NA":
+                            final_positions_HT = HD_Coos
+                            last_HD_pos[Are] = HD_Coos
+                        else:
+                            dists_table=cdist(last_HD_pos[Are], HD_Coos)
+                            order=list(linear_sum_assignment(dists_table)[1])
+                            final_positions_HT = [HD_Coos[order[0]],HD_Coos[order[1]]]
+                            last_HD_pos[Are] = [HD_Coos[order[0]],HD_Coos[order[1]]]
+                    else:
+                        final_positions_HT = [["NA","NA"],["NA","NA"]]
+
+                    final_positions_to_write=final_positions_HT
+
+
+                else:
+                    final_positions_to_write=final_cnts.copy()
+
+                final_positions = final_cnts.copy()
+
 
                 new_row = new_row + [coo for sublist in final_positions for coo in sublist]  # We keep the positions here
+                new_row_to_write = new_row_to_write + [coo for sublist in final_positions_to_write for coo in sublist]  # We keep the positions here
+
 
 
             #LAst progress
@@ -213,7 +306,7 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Too_much
             else:
                 last_row_WNA = new_row.copy()
 
-            all_rows.append(new_row)
+            all_rows.append(new_row_to_write)
 
             # The new row is saved to be used as next last row. If individuals were lost, we keep their last known position
             if frame > start or (portion and prev_row != None):
@@ -230,10 +323,6 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Too_much
                 all_rows = []
 
 
-            if Extracted_cnts.qsize()<400:
-                Too_much_frame.set()
-
-
 
         # After we finished the tracking, we save the remaining rows in the csv file.
         if not security_settings_track.stop_threads:
@@ -244,7 +333,7 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Too_much
 
 
 
-def Treat_cnts_variable(Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, start, end, prev_row, Extracted_cnts, Too_much_frame, Th_extract_cnts, To_save, portion, one_every, AD, specify_entrance, use_Kalman=False):
+def Treat_cnts_variable(Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, start, end, prev_row, Extracted_cnts, Th_extract_cnts, To_save, portion, one_every, AD, specify_entrance, use_Kalman=False, head_tail=False):
     delay_lost=5 #How much frames do we wait before considering a target left the entrance area if it is lost
     delay_found=3#How much time of existance do we consider for a target to be real (inside entrance area)
     all_NA = [True] * len(Arenas)  # Value = True if there is only "NA" in the first frame
@@ -487,9 +576,6 @@ def Treat_cnts_variable(Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, star
                 for row in all_rows:
                     writer.writerow(row)
                 all_rows = []
-
-            if Extracted_cnts.qsize() < 400:
-                Too_much_frame.set()
 
         # After we finished the tracking, we save the remaining rows in the csv file.
         if not security_settings_track.stop_threads:

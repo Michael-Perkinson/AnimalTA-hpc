@@ -1,20 +1,20 @@
 import datetime
 import ntpath
 import pyautogui
+import pickle
 from tkinter import *
 from tkinter import simpledialog
 from tkinter import filedialog
 from tkinter import ttk
-import pickle
 import shutil
 from AnimalTA.C_Pretracking.a_Parameters_track import Interface_parameters_track
 from AnimalTA.A_General_tools import Interface_extend, Interface_Save_Vids, Interface_Vids_for_convert, UserMessages, \
     User_help, Interface_selection_track_and_analyses, Class_loading_Frame, Interface_info, \
-    Interface_settings, Interface_Change_Folder, Color_settings, Message_simple_question as MsgBox
+    Interface_settings, Interface_Change_Folder, Color_settings, Message_simple_question as MsgBox, Diverse_functions
 from AnimalTA.E_Post_tracking.a_Tracking_verification import Interface_Check
 from AnimalTA.E_Post_tracking.b_Analyses import Interface_Analyses, Interface_sequences
 from AnimalTA.F_Behaviors_Neuro import Interface_Behavior
-from AnimalTA.B_Project_organisation import Class_Row_Videos, Table_summary, Import_data
+from AnimalTA.B_Project_organisation import Class_Row_Videos, Table_summary, Import_data, Interface_supp_frame_rate
 from AnimalTA.G_Specials import Extension_Roi
 import time
 from AnimalTA import Class_Video
@@ -25,9 +25,10 @@ from copy import deepcopy
 from ctypes import windll
 from django.utils.crypto import get_random_string
 import copy
-import sys
 import cv2
-
+import imghdr
+import sys
+import threading
 
 
 class Interface(Frame):
@@ -68,9 +69,10 @@ class Interface(Frame):
 
         self.folder = None #Where is the current directory
 
-        self.import_values = {"Sep": "\t", "Header": 0, "Fr_col":"", "Time_col":"","Ind_col":True,"ID_col":"","Col_x":"", "Col_y":""}#The defaults value for importing data
+        self.import_values = {"Sep": ";", "Header": 0, "Fr_col":"", "Time_col":"","Ind_col":True,"ID_col":"","Col_x":"", "Col_y":""}#The defaults value for importing data
 
         self.wait_for_vid = False  # For fusion process, if we expect the user to select a second vid, = True
+        self.wait_for_vid_3D = False #For 3D combination
         self.liste_of_videos = liste_of_videos
         self.Infos_track = StringVar()
         self.no_track = self.Messages["General7"]
@@ -86,6 +88,8 @@ class Interface(Frame):
         self.parent.bind("<B1-Motion>", self.change_size)
         self.parent.bind("<Motion>", self.change_cursor)
         self.parent.bind("<ButtonRelease-1>", self.release_size)
+
+        self.parent.bind("<space>", self.onFrameConfigure)
 
         # Canvas:
         # Main canvas
@@ -165,8 +169,21 @@ class Interface(Frame):
         self.Optns_Lab = Entry(self.rows_optns, textvar=self.project_name, relief="ridge", font=("Arial", 14), **Color_settings.My_colors.Entry_Base)
         self.Optns_Lab.grid(row=0, column=0, sticky="w")
         #Add a video
-        self.bouton_Add = Button(self.rows_optns, text=self.Messages["GButton7"], command=self.add_video,**Color_settings.My_colors.Button_Base)
-        self.bouton_Add.grid(row=0, column=1, sticky="nswe")
+        Frame_add_vid=Frame(self.rows_optns,**Color_settings.My_colors.Frame_Base)
+        Frame_add_vid.config(relief=RAISED, bd=2)
+        Frame_add_vid.grid(row=0, column=1, sticky="nswe")
+
+        self.bouton_Add = Button(Frame_add_vid, text=self.Messages["GButton7"], command=self.add_video,**Color_settings.My_colors.Button_Base)
+        self.bouton_Add.config(relief=FLAT)
+        self.bouton_Add.grid(row=0, column=0, sticky="nswe")
+
+        Frame(Frame_add_vid, width=1, background=self.list_colors["Fg_T1"]).grid(row=0, column=1, sticky="news")
+
+        self.type_vid=1#
+        self.bouton_change_vid_type = Button(Frame_add_vid, text="▾", font=("Arial", 10), command=self.change_vid_type,**Color_settings.My_colors.Button_Base)
+        self.bouton_change_vid_type.config(relief=FLAT, fg=Color_settings.My_colors.list_colors["Fg_Base_ina"])
+        self.bouton_change_vid_type.grid(row=0, column=2, sticky="nswe")
+
         #Do the tracking of some videos
         self.bouton_make_track = Button(self.rows_optns, text=self.Messages["GButton10"], command=self.begin_track,**Color_settings.My_colors.Button_Base)
         self.bouton_make_track.grid(row=0, column=4, sticky="nswe")
@@ -182,7 +199,7 @@ class Interface(Frame):
         #For a future update
         #Import data from other trackings
         self.bouton_import_dat = Button(self.rows_optns, text=self.Messages["Import_data0"], command=self.import_dat,**Color_settings.My_colors.Button_Base)
-        #self.bouton_import_dat.grid(row=0, column=7, sticky="nse")
+        self.bouton_import_dat.grid(row=0, column=7, sticky="nse")
         self.bouton_import_dat.config(state="disable")
         self.bouton_import_dat.bind("<Enter>", partial(self.HW.change_tmp_message, self.Messages["General26"]))
         self.bouton_import_dat.bind("<Leave>", self.HW.remove_tmp_message)
@@ -195,7 +212,7 @@ class Interface(Frame):
         self.bouton_save_TVid.bind("<Leave>", self.HW.remove_tmp_message)
 
         #Special feature, not to be distributed
-        #self.bouton_Roi = Button(self.rows_optns, text="Heart Beat", command=self.Roi_extension, background="yellow")
+        self.bouton_Roi = Button(self.rows_optns, text="Heart Beat", command=self.Roi_extension, background="yellow")
         #self.bouton_Roi.grid(row=0, column=9, sticky="nse")
 
         #The video table is created here and is associated with a scrollbar
@@ -304,12 +321,10 @@ class Interface(Frame):
         self.HW.get_attention(0)
 
         self.autosave()
-        print(file_path)
         if file_path!=None:
             self.open_file2(new_file=file_path)
 
     def set_appwindow(self, root):
-
         GWL_EXSTYLE = -20
         WS_EX_APPWINDOW = 0x00040000
         WS_EX_TOOLWINDOW = 0x00000080
@@ -539,10 +554,10 @@ class Interface(Frame):
         self.bouton_New.config(state="disable")
         self.bouton_Save.config(state="disable")
         self.bouton_Add.config(state="disable")
+        self.bouton_change_vid_type.config(state="disable")
         self.bouton_Open.config(state="disable")
         self.B_settings.config(state="disable")
         self.unbind_everything()
-
 
         # We add the new one
         self.Second_Menu = interface
@@ -557,6 +572,7 @@ class Interface(Frame):
         self.unbind_all("<Button-1>")
         self.unbind_all("<Delete>")
         self.unbind_all("<Shift-Delete>")
+        self.unbind_all("<Control-s>")
 
     def bind_everything(self):
         self.bind_all("<Up>", self.Up)
@@ -566,8 +582,9 @@ class Interface(Frame):
         self.bind_all("<MouseWheel>", self.on_mousewheel)
         self.parent.bind_all("<Button-1>", self.remove_Fus)
         self.bind_all("<Button-1>", self.remove_Fus)
-        self.bind_all("<Delete>", partial(self.supr_video, None, True))
+        self.bind_all("<Delete>", self.supr_short)
         self.bind_all("<Shift-Delete>", self.supr_multi_video)
+        self.bind_all("<Control-s>", self.save)
 
 
 
@@ -584,15 +601,19 @@ class Interface(Frame):
         self.bouton_New.config(state="normal")
         self.bouton_Save.config(state="normal")
         self.bouton_Add.config(state="normal")
+        self.bouton_change_vid_type.config(state="normal")
         self.bouton_Open.config(state="normal")
         self.B_settings.config(state="normal")
 
         self.bind_everything()
 
         # We remove the new one
-        self.Second_Menu.grid_forget()
-        self.Second_Menu.destroy()
-        del self.Second_Menu
+        try:
+            self.Second_Menu.grid_forget()
+            self.Second_Menu.destroy()
+            del self.Second_Menu
+        except:
+            pass
 
         self.afficher_projects()
 
@@ -605,25 +626,33 @@ class Interface(Frame):
         self.posX=event1
         self.moveX()
 
+
+    def save_project_files(self):
+        shutil.copyfile(self.file_to_save, self.file_to_save + "old")
+        # This is a security to ensure that the old file will not be deleted before ensurong the new one can be proprly saved
+
+        with open(self.file_to_save, 'wb') as fp:
+            data_to_save = dict(Project_name=self.project_name.get(), Folder=self.folder, Videos=self.liste_of_videos,
+                                ID_project=self.ID_project, Importation_values=self.import_values)
+            pickle.dump(data_to_save, fp)
+
+        # If there was no problem during the save, we delete the security copy
+        os.remove(self.file_to_save + "old")
+
     ##Project management
-    def save(self):
+    def save(self, *args):
         # Save the project
         try:
-            load_frame= Class_loading_Frame.Loading(self)#Progression bar
+            load_frame= Class_loading_Frame.Loading(self, text="Saving file")#Progression bar CTXT
             load_frame.grid()
-            load_frame.show_load(0)
-            shutil.copyfile(self.file_to_save, self.file_to_save+"old")
-            load_frame.show_load(0.5)
-            #This is a security to ensure that the old file will not be deleted before ensurong the new one can be proprly saved
 
-            with open(self.file_to_save , 'wb') as fp:
-                data_to_save = dict(Project_name=self.project_name.get(), Folder=self.folder, Videos=self.liste_of_videos, ID_project=self.ID_project, Importation_values=self.import_values)
-                pickle.dump(data_to_save, fp)
+            save_th = threading.Thread(
+                target=self.save_project_files,
+                daemon=True
+            )
+            save_th.start()
 
-            load_frame.show_load(1)
-
-            #If there was no problem during the save, we delete the security copy
-            os.remove(self.file_to_save+"old")
+            load_frame.show_loading_while(save_th)
 
             load_frame.destroy()
             del load_frame
@@ -709,6 +738,7 @@ class Interface(Frame):
                 else:
                     self.file_to_open=new_file
 
+
                 with open(self.file_to_open, 'rb') as fp:
                     data_to_load = pickle.load(fp)
 
@@ -740,12 +770,12 @@ class Interface(Frame):
                             if file_[-4:]!=".avi":
                                 src_file = os.path.join(src_dir, file_)
                                 shutil.copy(src_file, dst_dir)
+
                     for V in data_to_load["Videos"]:
                         V.Folder=self.folder
                         self.liste_of_videos.append(V)
 
-
-            if not os.path.exists(self.folder):
+            if self.folder is None or not os.path.exists(self.folder):
                 question = MsgBox.Messagebox(parent=self, title=self.Messages["General17"],
                                              message=self.Messages["General27"],
                                              Possibilities=[self.Messages["Yes"], self.Messages["No"]])
@@ -756,6 +786,8 @@ class Interface(Frame):
                     self.folder=filedialog.askdirectory()
                     for V in self.liste_of_videos:
                         V.Folder=self.folder
+
+
 
             if len(self.list_projects)==0:
                 for row in range(20):
@@ -768,6 +800,8 @@ class Interface(Frame):
 
             to_suppr = []
 
+
+
             # Check that videos are still available
             for V in range(len(self.liste_of_videos)):
                 # Look for all points of interest
@@ -776,12 +810,13 @@ class Interface(Frame):
                 elif self.liste_of_videos[V].Back[0]==True:
                     self.liste_of_videos[V].Back[0]=1
 
-                if self.liste_of_videos[V].Back[0] == 1:
+                if self.liste_of_videos[V].Back[0] == 1 and len(self.liste_of_videos[V].Back[1])>0:
                     if self.liste_of_videos[V].Back[1].shape[0] != self.liste_of_videos[V].shape[0] or \
                             self.liste_of_videos[V].Back[1].shape[1] != self.liste_of_videos[V].shape[1]:
                         self.liste_of_videos[V].Back[1] = cv2.resize(self.liste_of_videos[V].Back[1],
                                                                      [self.liste_of_videos[V].shape[1],
                                                                       self.liste_of_videos[V].shape[0]])
+
 
                 try:
                     self.liste_of_videos[V].Stab[2]  # Old versions of animalTA did not allowed parameter changes, we check for compatibility problems
@@ -817,6 +852,13 @@ class Interface(Frame):
                     self.liste_of_videos[V].Rotation
                 except:  # Old versions of AnimalTA did not had the "Entrance" attribute, this handled exception is to avoid compatibility problems
                     self.liste_of_videos[V].Rotation = 0
+
+
+                try:
+                    self.liste_of_videos[V].comb_V_3D
+                except:
+                    self.liste_of_videos[V].comb_V_3D=None
+
 
                 if self.liste_of_videos[V].Tracked:
                     try:
@@ -858,9 +900,8 @@ class Interface(Frame):
                                     string=seq[2][3]
                                     seq[2][3] = string.replace("Last time in ", "Last_in_")
 
-                    except:  # Old versions of AnimalTA did not had the "Entrance" attribute, this handled exception is to avoid compatibility problems
+                    except:  # Old versions of AnimalTA did not had the "Sequences" attribute, this handled exception is to avoid compatibility problems
                         self.liste_of_videos[V].Sequences = []
-
 
                     if len(self.liste_of_videos[V].Sequences)==0: #Some intermediate version created this kind of empty sequences
                         self.liste_of_videos[V].Sequences = []
@@ -873,20 +914,48 @@ class Interface(Frame):
                     except:
                         self.liste_of_videos[V].Sequences_saved = copy.deepcopy(self.liste_of_videos[V].Sequences)
 
+                    try:
+                        self.liste_of_videos[V].Morphometrics
+                    except:
+                        self.liste_of_videos[V].Morphometrics=0
+
+                    try:
+                        self.liste_of_videos[V].More_ana_Crosses
+                    except:
+                        self.liste_of_videos[V].More_ana_Crosses=False
+
+                    try:
+                        self.liste_of_videos[V].Explored_complex
+                    except:
+                        self.liste_of_videos[V].Explored_complex=False
 
 
+                    try:
+                        self.liste_of_videos[V].Details_options
+                    except:
+                        Diverse_functions.prepare_details(self.liste_of_videos[V])
 
-                '''
+
+                    for key in Diverse_functions.list_details_options:
+                        try:
+                            self.liste_of_videos[V].Details_options[key]
+                        except:
+                            self.liste_of_videos[V].Details_options[key]=False
+
+                    try:
+                        self.liste_of_videos[V].Stops_Moves_options[1]
+                    except:
+                        Diverse_functions.prepare_stops_moves_option(self.liste_of_videos[V])
+
                 try:
                     self.liste_of_videos[V].Morphometrics
                 except:
                     if self.liste_of_videos[V].Tracked:
-                       
                         self.liste_of_videos[V].Morphometrics = []
                         for Ar in range(len(self.liste_of_videos[V].Track[1][6])):
                             for i in range(self.liste_of_videos[V].Track[1][6][Ar]):
                                 self.liste_of_videos[V].Morphometrics.append([])
-                '''
+
                 if len(self.liste_of_videos[V].Track[1])<8:#Old versions of AnimalTA did not allow for lightning corrections or variable number of targets
                     self.liste_of_videos[V].Track[1].append(False)#No lightning correction
                     self.liste_of_videos[V].Track[1].append(True)#Fixed number of tragets
@@ -896,12 +965,17 @@ class Interface(Frame):
                     self.liste_of_videos[V].Track[1].append(False)#Flicker correction
                 if len(self.liste_of_videos[V].Track[1])<11:
                     self.liste_of_videos[V].Track[1].append([0,0,0])#black/colored background
-
+                if len(self.liste_of_videos[V].Track[1])<12:
+                    self.liste_of_videos[V].Track[1].append(5)#For adaptive threshold, default value C argument
                 try:
-                    if len(self.liste_of_videos[V].Track[1][10])<3:
+                    while len(self.liste_of_videos[V].Track[1][10])<3:
                         self.liste_of_videos[V].Track[1][10].append(0)# background
+
+                    if len(self.liste_of_videos[V].Track[1][10])<4:
+                        self.liste_of_videos[V].Track[1][10].append(30)# background
+
                 except:
-                    self.liste_of_videos[V].Track[1][10]=[0,0,0]
+                    self.liste_of_videos[V].Track[1][10]=[0,0,0,30]
 
                 if len(self.liste_of_videos[V].Analyses)<5:
                     self.liste_of_videos[V].Analyses.append([[],[],[]])#Deformation of images
@@ -913,31 +987,36 @@ class Interface(Frame):
 
                 ####For bebugging pruposes only!
                 '''
-                self.liste_of_videos[V].File_name="G:/TRacking_save/Exemples_development/Fake_project_folder/converted_vids/Tracked_drosos.avi"#For debugging other users problems
-                self.liste_of_videos[V].Cropped_sp[0]=False
+                vid_to_copy="I:/AnimalTA/AnimalTA_developpement/Fake_projects/Fake_long.avi"
+                self.liste_of_videos[V].File_name=vid_to_copy#For debugging other users problems
+                #self.liste_of_videos[V].Cropped_sp[0]=False
                 for F in range(len(self.liste_of_videos[V].Fusion)):
-                    self.liste_of_videos[V].Fusion[F][1] = "G:/TRacking_save/Exemples_development/Fake_project_folder/converted_vids/Tracked_drosos.avi"
+                    self.liste_of_videos[V].Fusion[F][1] = vid_to_copy
 
-               
+                
                 if self.liste_of_videos[V].Tracked:
-                    to_copy_file="G:/TRacking_save/Exemples_development/Things_to_copy/V1_Corrected.csv"
-
+                    to_copy_file="I:/AnimalTA/AnimalTA_developpement/Fake_projects/Fake_project_Tristan/coordinates/Fake_Corrected.csv"
                     file_name = self.liste_of_videos[V].User_Name
-                    file_tracked_not_corr = os.path.join("G:/TRacking_save/Exemples_development/Fake_project_folder/coordinates", file_name + "_Coordinates.csv")
+                    file_tracked_not_corr = os.path.join("I:/AnimalTA/AnimalTA_developpement/Fake_projects/Fake_project_Tristan/coordinates", file_name + "_Coordinates.csv")
                     shutil.copyfile(to_copy_file, file_tracked_not_corr)
                 '''
 
 
+
                 everything_ok=False
                 while not everything_ok:
+                    try:
+                        self.liste_of_videos[V].type
+                    except:
+                        self.liste_of_videos[V].type="Video"
+
                     if not Interface_Change_Folder.check_vid(self.liste_of_videos[V]):
                         file_name=ntpath.basename(self.liste_of_videos[V].File_name)
-                        if os.path.isfile(self.folder+"/converted_vids/"+file_name):
+                        if os.path.isfile(self.folder+"/converted_vids/"+file_name) and self.liste_of_videos[V].type=="Video":
                             self.liste_of_videos[V].File_name=self.folder+"/converted_vids/"+file_name
                             for F in range(len(self.liste_of_videos[V].Fusion)):
                                 if os.path.isfile(self.folder + "/converted_vids/" + ntpath.basename(self.liste_of_videos[V].Fusion[F][1])):
                                     self.liste_of_videos[V].Fusion[F][1] = self.folder+"/converted_vids/"+ ntpath.basename(self.liste_of_videos[V].Fusion[F][1])
-
                             if Interface_Change_Folder.check_vid(self.liste_of_videos[V]):
                                 everything_ok = True
 
@@ -960,7 +1039,6 @@ class Interface(Frame):
                                 return
                     else:
                         everything_ok=True
-
 
             if len(to_suppr) > 0:
                 for elem in sorted(to_suppr, reverse=True):
@@ -985,6 +1063,7 @@ class Interface(Frame):
 
             self.bouton_Close.config(state="normal")
             self.Sub_table.grid(row=2, column=0, sticky="nsew")
+
 
         except Exception as e:
             CustomDialog(self.master, text="An exception occurred while opening the file:"+ str(type(e).__name__) + " – " + str(e), title="Debugging")
@@ -1034,8 +1113,8 @@ class Interface(Frame):
     def new_project(self):
         #If user wants to create a new project, we ask for saving the current one
         if not self.folder == None:
-            question = MsgBox.Messagebox(parent=self, title=self.Messages["General18"],
-                                         message=self.Messages["General17"],
+            question = MsgBox.Messagebox(parent=self, title=self.Messages["General17"],
+                                         message=self.Messages["General18"],
                                          Possibilities=[self.Messages["Yes"], self.Messages["No"], self.Messages["Cancel"]])
             self.wait_window(question)
             answer = question.result
@@ -1209,12 +1288,26 @@ class Interface(Frame):
                 self.open_import()
 
     def open_import(self):
-        self.unbind_everything()
-        if self.selected_vid != None:
-            data_files = filedialog.askopenfilenames()
-            if len(data_files) > 0:
-                newWindow = Toplevel(self.parent)
-                Import_data.Int_import(newWindow, self, data_files, Vid=self.selected_vid)
+        #CTXT
+        all_possible_progs=["AnimalTA", "ToxTrack", "SLEAP","DeepLabCut", "Loopy","Other"]
+        question = MsgBox.Messagebox(parent=self, title="Importation",
+                                     message="Where are the data coming from?",
+                                     Possibilities=all_possible_progs, hilight=[len(all_possible_progs)-1])
+
+        self.wait_window(question)
+        answer = question.result
+
+        if answer==len(all_possible_progs)-1:
+            self.unbind_everything()
+            if self.selected_vid != None:
+                data_files = filedialog.askopenfilenames()
+                if len(data_files) > 0:
+                    newWindow = Toplevel(self.parent)
+                    Import_data.Int_import(newWindow, self, data_files, Vid=self.selected_vid)
+        else:
+            Import_data.import_listed(prog=all_possible_progs[answer], Vid=self.selected_vid, boss=self)
+
+        self.update_selections()
 
     def check_track(self, speed=0):
         #Open the Frame to allow to check and correct the tracking trajectories
@@ -1271,54 +1364,125 @@ class Interface(Frame):
                                                          Video_file=self.selected_vid, speed=speed))
 
 
+    def change_vid_type(self):
+        if self.type_vid:
+            self.bouton_Add.config(text="Add image sequence")#CTXT
+        else:
+            self.bouton_Add.config(text=self.Messages["GButton7"])
+        self.type_vid= not self.type_vid
+
+
+    def control_vid(self, file, point_pos):
+        if file[point_pos:].lower() != ".avi" and file[
+                                                  point_pos:].lower() != ".ata":  # If it is not an avi file or an existing animalTA file, the video will be converted
+            self.list_to_convert.append(file)
+        elif file[point_pos:].lower() == ".avi" and file not in [Vid.File_name for Vid in
+                                                                 self.liste_of_videos]:  # If the file was already loaded, we don't take it (user should then use the duplicate video button)
+            # We check that the video does not need to be converted (might happen with some kind of avi encoding)
+            tmp_capture = decord.VideoReader(file)
+            tmp_capture.seek(0)
+            frame0 = tmp_capture[0].asnumpy()
+            tmp_capture.seek(0)
+            inf = tmp_capture.get_frame_timestamp(0)[0]
+            tmp_capture.seek(0)
+            if inf:
+                self.list_to_convert.append(file)  # If it is needed to convert the video, it is added to the list
+            else:  # If not, the video is added to the project
+
+                self.liste_of_videos.append(
+                    Class_Video.Video(File_name=file, Folder=self.folder, shape=frame0.shape, nb_fr=len(tmp_capture),
+                                      fr_rate=tmp_capture.get_avg_fps()))
+            del tmp_capture
+
+
 
     def add_video(self):
-        try:
-            #Add a video inside the current project
-            videos_to_add = filedialog.askopenfilenames()
-            self.list_to_convert = []
-            add_old=[]
-            load_frame= Class_loading_Frame.Loading(self)#Progression bar
-            load_frame.grid()
+        if self.type_vid:#If we are adding videos (in opposition to image sequences)
+            try:
+                #Add a video inside the current project
+                videos_to_add = filedialog.askopenfilenames()
+                self.list_to_convert = []
+                if len(videos_to_add)>0:
+                    add_old=[]
+                    load_frame= Class_loading_Frame.Loading(self)#Progression bar
+                    load_frame.grid()
 
-            Progress=0
-            load_frame.show_load(Progress / len(videos_to_add))
-            for file in videos_to_add:
-                point_pos = file.rfind(".")
-                if file[point_pos:].lower() != ".avi" and file[point_pos:].lower()!=".ata":#If it is not an avi file or an existing animalTA file, the video will be converted
-                    self.list_to_convert.append(file)
-                elif file[point_pos:].lower() == ".avi" and file not in [Vid.File_name for Vid in self.liste_of_videos]:#If the file was already loaded, we don't take it (user should then use the duplicate video button)
-                    #We check that the video does not need to be converted (might happen with some kind of avi encoding)
-                    tmp_capture = decord.VideoReader(file)
-                    tmp_capture.seek(0)
-                    frame0=tmp_capture[0].asnumpy()
-                    tmp_capture.seek(0)
-                    inf=tmp_capture.get_frame_timestamp(0)[0]
-                    tmp_capture.seek(0)
-                    if inf:
-                        self.list_to_convert.append(file)#If it is needed to convert the video, it is added to the list
-                    else:#If not, the video is added to the project
-                        self.liste_of_videos.append(Class_Video.Video(File_name=file, Folder=self.folder, shape=frame0.shape, nb_fr=len(tmp_capture), fr_rate=tmp_capture.get_avg_fps()))
-                    del tmp_capture
-                elif file[point_pos:].lower() == ".ata":
-                    add_old.append(file)
+                    load_frame_pv= Class_loading_Frame.Loading(self)#Progression bar
+                    load_frame_pv.grid()
 
-                Progress+=1
-                load_frame.show_load(Progress/len(videos_to_add))
+                    Progress=0
+                    load_frame.show_load(Progress / len(videos_to_add))
+                    for file in videos_to_add:
+                        point_pos = file.rfind(".")
+                        if file[point_pos:].lower() == ".ata":
+                            add_old.append(file)
 
-            if len(add_old)>0:
-                self.open_file2(file)
+                        else:
+                            control_th=threading.Thread(target=self.control_vid, kwargs=dict(file=file, point_pos=point_pos), daemon=True)
+                            control_th.start()
+                            load_frame_pv.show_loading_while(control_th)
 
-            load_frame.destroy()
-            del load_frame
-        except Exception as e:
-            CustomDialog(self.master, text="The video couldn't be loaded:" + str(type(e).__name__) + " – " + str(e), title="Debugging")
-            load_frame.destroy()
-            del load_frame
+                        Progress+=1
+                        load_frame.show_load(Progress/len(videos_to_add))
 
-        if len(self.list_to_convert) > 0:#If some videos need to be converted, we open the conversion window
-            newWindow = Toplevel(self.parent)
-            interface = Interface_Vids_for_convert.Convert(parent=newWindow, boss=self, list_to_convert=self.list_to_convert)
+                    if len(add_old)>0:
+                        self.open_file2(file)
+
+                    load_frame.destroy()
+                    del load_frame
+                    load_frame_pv.destroy()
+                    del load_frame_pv
+
+            except Exception as e:
+                CustomDialog(self.master, text="The video couldn't be loaded:" + str(type(e).__name__) + " – " + str(e), title="Debugging")
+                load_frame.destroy()
+                del load_frame
+
+            if len(self.list_to_convert) > 0:#If some videos need to be converted, we open the conversion window
+                newWindow = Toplevel(self.parent)
+                interface = Interface_Vids_for_convert.Convert(parent=newWindow, boss=self, list_to_convert=self.list_to_convert)
+
+        else:#If we are loading image sequences
+            # Add a video inside the current project
+            folder_imseq = filedialog.askdirectory()
+
+            if len(folder_imseq)>0:
+                newWindow = Toplevel(self.parent.master)
+                self.new_fps=25
+                interface = Interface_supp_frame_rate.Details_fps(parent=newWindow, boss=self, vid_exist=False)
+                self.wait_window(interface)
+
+                load_frame = Class_loading_Frame.Loading(self)  # Progression bar
+                load_frame.grid()
+                load_frame.show_load(0)
+
+                image_files = []
+
+                total_files = sum([len(files) for _, _, files in os.walk(folder_imseq)])
+                counted=0
+                #We save all images locations
+                for root, _, files in os.walk(folder_imseq):
+                    for filename in files:
+                        filepath = os.path.join(root, filename)
+                        if os.path.isfile(filepath) and imghdr.what(filepath):
+                            relative_path = os.path.relpath(filepath, folder_imseq)
+                            image_files.append(relative_path)
+
+                        load_frame.show_load(counted/total_files)
+                        counted+=1
+
+                image_files.sort()#The user will have to give name that can be ordered alphabetically
+                img=cv2.imread(os.path.join(folder_imseq, image_files[0]))
+
+                self.liste_of_videos.append(
+                    Class_Video.Video(File_name=folder_imseq, Folder=self.folder, shape=img.shape,
+                                      nb_fr=len(image_files), fr_rate=self.new_fps, type="ImgSeq", img_list=image_files))
+
+
+
+                load_frame.destroy()
+                del load_frame
+
 
         self.update()
         self.afficher_projects()
@@ -1332,6 +1496,12 @@ class Interface(Frame):
         newWindow = Toplevel(self.parent)
         interface = Interface_extend.Extend(parent=newWindow, value="NA", boss=self,
                                             Video_file=self.selected_vid, type="supr",do_self=True)
+        self.parent.wait_window(newWindow)
+        self.save()
+
+    def supr_short(self, *args):
+        self.supr_video(None, True)
+        self.save()
 
     def supr_video(self, Vid=None, warn=True, event=None, *args):
         if event==None or (event!=None and event.widget.winfo_class()!="Entry"):
@@ -1353,7 +1523,7 @@ class Interface(Frame):
                     self.afficher_projects()
                     self.selected_vid = None
                     self.update_selections()
-                    self.save()
+
 
     def dupli_video(self, Vid):
         #Duplicate an existing video:
@@ -1421,14 +1591,40 @@ class Interface(Frame):
             self.fus_video()
         self.update_selections()
 
+    def combine_3D_video(self):
+        #When user press the "concatenate" button
+        if self.wait_for_vid_3D:# If the button was already activated, we deactivate it
+            self.wait_for_vid_3D = False
+            #CTXT
+            self.HW.change_default_message(self.Messages["General1"])
+            self.HW.change_tmp_message(self.Messages["General1"])
+        else:# If not we activate and wait for a  second vidoe to be selected
+            self.wait_for_vid_3D = True
+
+    def fusion_two_Vids_3D(self, second_Vid):
+        if self.selected_vid != second_Vid:  # If the two videos are different
+            #We first associate both videos together
+            self.selected_vid.comb_V_3D=second_Vid
+            second_Vid.comb_V_3D=self.selected_vid
+
+            second_Vid.Scale=[1,"px",[[],[]]]
+            self.selected_vid.Scale = [1, "px", [[],[]]]
+
+
+        else:
+            self.combine_3D_video()
+
+        self.wait_for_vid_3D = False
+
     def fusion_two_Vids(self, second_Vid):
         #When the concatenation button was activate and the user select a second video to be concatenated
         if self.selected_vid != second_Vid:#If the two videos are different
             load_frame= Class_loading_Frame.Loading(self)#Progression bar
             load_frame.grid()
             load_frame.show_load(0 / 2)
+            load_frame.loading_state.config(text=self.Messages["Video"] + " 0/2")
 
-            if self.selected_vid.or_shape == second_Vid.or_shape and abs(self.selected_vid.Frame_rate[0] - second_Vid.Frame_rate[0])<0.05:#And that they share the same characteristics
+            if self.selected_vid.type==second_Vid.type and self.selected_vid.or_shape[0] == second_Vid.or_shape[0] and self.selected_vid.or_shape[1] == second_Vid.or_shape[1] and abs(self.selected_vid.Frame_rate[0] - second_Vid.Frame_rate[0])<0.05:#And that they share the same characteristics
                 if self.selected_vid.Frame_rate[0] != second_Vid.Frame_rate[0]:
                     new_frame_rate=(self.selected_vid.Frame_rate[0] + second_Vid.Frame_rate[0]) / 2
                     question = MsgBox.Messagebox(parent=self, title="",
@@ -1440,23 +1636,43 @@ class Interface(Frame):
                 else:
                     new_frame_rate=self.selected_vid.Frame_rate[0]
 
-                if self.selected_vid.Frame_rate[0] == second_Vid.Frame_rate[0] or answer==0:
-                    if len(self.selected_vid.Fusion) < 2: #If it was not done yet, we prepare the info for the Fusion process (can't be done before as opencv is not accurate in frame counting and decord too slow to manage all the videos at the same time)
-                        capture = decord.VideoReader(self.selected_vid.File_name, ctx=decord.cpu(0))
-                        capture.seek(0)
-                        self.selected_vid.Frame_nb[0] = len(capture)
-                        self.selected_vid.Frame_nb[1] = self.selected_vid.Frame_nb[0] / int(round(round(self.selected_vid.Frame_rate[0], 2) / self.selected_vid.Frame_rate[1]))
-                        del capture
-                        load_frame.show_load(1 / 2)
+                if  (self.selected_vid.Frame_rate[0] == second_Vid.Frame_rate[0] or answer==0):
+                    load_frame_pv= Class_loading_Frame.Loading(self, text="Checking Video format")#CTXT
+                    load_frame_pv.grid()
 
-                    if len(second_Vid.Fusion) < 2: #If it was not done yet, we prepare the info for the Fusion process (can't be done before as opencv is not accurate in frame counting and decord too slow to manage all the videos at the same time)
-                        capture = decord.VideoReader(second_Vid.File_name, ctx=decord.cpu(0))
-                        capture.seek(0)
-                        second_Vid.Frame_nb[0] = len(capture)
-                        second_Vid.Frame_nb[1] = second_Vid.Frame_nb[0] / int(round(round(second_Vid.Frame_rate[0], 2) / second_Vid.Frame_rate[1]))
-                        del capture
-                        load_frame.show_load(2 / 2)
 
+                    def check_vid_length():
+                        if self.selected_vid.type == "Video" and len(
+                                self.selected_vid.Fusion) < 2:  # If it was not done yet, we prepare the info for the Fusion process (can't be done before as opencv is not accurate in frame counting and decord too slow to manage all the videos at the same time)
+                            capture = decord.VideoReader(self.selected_vid.File_name, ctx=decord.cpu(0))
+                            capture.seek(0)
+                            self.selected_vid.Frame_nb[0] = len(capture)
+                            self.selected_vid.Frame_nb[1] = self.selected_vid.Frame_nb[0] / int(
+                                round(round(self.selected_vid.Frame_rate[0], 2) / self.selected_vid.Frame_rate[1]))
+                            del capture
+                            load_frame.loading_state.config(text=self.Messages["Video"] + " 1/2")
+                            load_frame.show_load(1 / 2)
+
+                        if self.selected_vid.type == "Video" and len(
+                                second_Vid.Fusion) < 2:  # If it was not done yet, we prepare the info for the Fusion process (can't be done before as opencv is not accurate in frame counting and decord too slow to manage all the videos at the same time)
+                            capture = decord.VideoReader(second_Vid.File_name, ctx=decord.cpu(0))
+                            capture.seek(0)
+                            second_Vid.Frame_nb[0] = len(capture)
+                            second_Vid.Frame_nb[1] = second_Vid.Frame_nb[0] / int(
+                                round(round(second_Vid.Frame_rate[0], 2) / second_Vid.Frame_rate[1]))
+                            del capture
+                            load_frame.loading_state.config(text=self.Messages["Video"] + " 2/2")
+                            load_frame.show_load(2 / 2)
+
+                    control_th = threading.Thread(target=check_vid_length,  daemon=True)
+                    control_th.start()
+                    load_frame_pv.show_loading_while(control_th)
+
+                    load_frame_pv.destroy()
+
+
+
+                    if len(second_Vid.Fusion) < 2:
                         # We add the second part after the first one
                         self.selected_vid.Fusion.append([self.selected_vid.Frame_nb[0], second_Vid.File_name])
 
@@ -1464,14 +1680,22 @@ class Interface(Frame):
                         for subVid in second_Vid.Fusion:
                             self.selected_vid.Fusion.append([subVid[0]+self.selected_vid.Frame_nb[0], subVid[1]])
 
+                    self.selected_vid.Fusion[0][0] = 0
                     self.selected_vid.Frame_nb[0] += second_Vid.Frame_nb[0]
                     self.selected_vid.Frame_nb[1] = self.selected_vid.Frame_nb[0] / int(round(round(self.selected_vid.Frame_rate[0], 2) / self.selected_vid.Frame_rate[1]))
                     self.selected_vid.Frame_rate[0] = new_frame_rate
                     self.selected_vid.Cropped = [False, [0, self.selected_vid.Frame_nb[0] - 1]]
+                    if self.selected_vid.type != "Video":
+                        self.selected_vid.img_list += second_Vid.img_list
+
                     self.selected_vid.clear_files()
                     self.supr_video(Vid=second_Vid, warn=False)
                     self.wait_for_vid = False
+                    self.save()
                     self.afficher_projects()
+
+
+
 
             else:#If the two videos does not share the same charcateristic, we inform the user
                 self.wait_for_vid = False
@@ -1512,6 +1736,7 @@ class Interface(Frame):
             self.bouton_import_dat.config(state="normal")
             self.move_up_button.config(state="normal", bg=self.list_colors["Moving_arrows"])
             self.move_down_button.config(state="normal", bg=self.list_colors["Moving_arrows"])
+
 
             if not self.selected_vid.Track[0] and not self.selected_vid.Tracked:
                 self.Beginn_track.config(state="normal", background=self.list_colors["Button_ready"], bg=self.list_colors["Button_ready"], activeforeground=self.list_colors["Fg_Button_ready"], fg=self.list_colors["Fg_Button_ready"])
@@ -1567,8 +1792,7 @@ class Interface(Frame):
                 if not self.selected_vid.Tracked or not(os.path.isfile(file_tracked) or os.path.isfile(file_trackedP)):
                     self.bouton_check_track.config(state="disable", **Color_settings.My_colors.Frame_Base)
                     self.bouton_analyse_track.config(state="disable", **Color_settings.My_colors.Frame_Base)
-                    #self.bouton_add_event.config(state="disable", activebackground="#f0f0f0",bg="#f0f0f0")
-
+                    # self.bouton_add_event.config(state="disable", activebackground="#f0f0f0",bg="#f0f0f0")
 
                 elif os.path.isfile(file_tracked) or os.path.isfile(file_trackedP):
                     self.Beginn_track.config(state="normal", **Color_settings.My_colors.Button_Base)

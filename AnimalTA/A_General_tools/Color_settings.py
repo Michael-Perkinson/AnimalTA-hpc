@@ -98,6 +98,8 @@ class Color_GUI:
 
                                 "NAs": "#ffa1a1",
                                 "Fg_NAs": "black",
+                                "Stopped_NA": "#7a2d2d",
+                                "Stopped": "#cc80d1",
                                 "Header_check": "grey95",
                                 "Fg_Header_check": "black",
                                 "Selected_row_check": "#9DD8FF",
@@ -110,8 +112,6 @@ class Color_GUI:
 
                                 "Threshold_ana": "red",
                                 "Position_ana": "blue",
-
-                                "Hilight_Frame": "green",
 
                                 "Arrow_N_Relief_scroll": "grey30",
                                 }
@@ -196,6 +196,8 @@ class Color_GUI:
 
                                 "NAs":"#ffa1a1",
                                 "Fg_NAs":"black",
+                                "Stopped_NA": "#7a2d2d",
+                                "Stopped": "#cc80d1",
                                 "Header_check":"#565656",
                                 "Fg_Header_check":"#f5f5f5",
                                 "Selected_row_check":"#95BBD4",
@@ -208,8 +210,6 @@ class Color_GUI:
 
                                 "Threshold_ana":"red",
                                 "Position_ana":"blue",
-
-                                "Hilight_Frame":"green",
 
                                 "Arrow_N_Relief_scroll":"#A086A4",
                                 }

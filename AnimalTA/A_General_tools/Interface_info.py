@@ -41,12 +41,14 @@ class Information_panel(Frame):
             Lab_update.grid(row=Crow, column=0,columnspan=2, sticky="nsew")
             Crow+=1
 
+            #CTXT
             link = Label(self, text="Download at: http://vchiara.eu/index.php/animalta", font=("Arial", "14", "bold"), cursor="hand2", **Color_settings.My_colors.Label_Base)
             link.config(fg="#b448cd")
             link.grid(row=Crow, column=0, columnspan=2, sticky="nsew")
             link.bind("<Button-1>", self.send_link)
             Crow += 1
 
+            #CTXT
             Lab11 = Label(self, text="Or\nAllow AnimalTA to download and install the new update(s):", font=("Arial", "16", "bold"), **Color_settings.My_colors.Label_Base)
             Lab11.grid(row=Crow, column=0, columnspan=2, sticky="nsew")
             Crow += 1
@@ -64,12 +66,15 @@ class Information_panel(Frame):
             #Space
             Crow += 1
 
-            Lab_version=Label(self, text="AnimalTA. current version: " + current_version, font=("Arial", "14", "bold"), justify=LEFT, **Color_settings.My_colors.Label_Base)
+
+            #CTXT
+            Lab_version=Label(self, text="AnimalTA. Dev version", font=("Arial", "14", "bold"), justify=LEFT, **Color_settings.My_colors.Label_Base)
             Lab_version.grid(row=Crow, column=0,columnspan=2, sticky="nsw")
             Crow += 1
 
         else:
-            Lab_version=Label(self, text="AnimalTA. current version: " + current_version, font=("Arial", "14", "bold"), **Color_settings.My_colors.Label_Base)
+            # CTXT
+            Lab_version=Label(self, text="AnimalTA. Dev version" , font=("Arial", "14", "bold"), **Color_settings.My_colors.Label_Base)
             Lab_version.grid(row=Crow, column=0,columnspan=2, sticky="nsw")
             Crow += 1
 

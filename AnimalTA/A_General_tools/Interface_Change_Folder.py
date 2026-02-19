@@ -7,15 +7,26 @@ from tkinter import filedialog
 import pyautogui
 
 def check_vid(Vid):
-    not_ok = 0
-    for F in range(len(Vid.Fusion)):
-        if not os.path.isfile(Vid.Fusion[F][1]):
-            not_ok += 1
+    if Vid.type=="Video":
+        not_ok = 0
+        for F in range(len(Vid.Fusion)):
+            if not os.path.isfile(Vid.Fusion[F][1]):
+                not_ok += 1
 
-    if os.path.isfile(Vid.File_name) and not_ok == 0:
-        return True
+        if os.path.isfile(Vid.File_name) and not_ok == 0:
+            return True
+        else:
+            return False
     else:
-        return False
+        not_ok = 0
+        for F in range(len(Vid.Fusion)):
+            if not os.path.isdir(Vid.Fusion[F][1]):
+                not_ok += 1
+
+        if not_ok == 0:
+            return True
+        else:
+            return False
 
 class Change_path(Frame):
     def __init__(self, parent, boss, new_file, any_tracked=False):
@@ -107,6 +118,11 @@ class Change_path(Frame):
             pass
 
         if V<self.Liste.size()-1:
+            try:
+                self.list_vid_minus[V].type
+            except:
+                self.list_vid_minus[V].type = "Video"
+
             if not check_vid(self.list_vid_minus[V]):
                 self.info = Toplevel(self.parent)
                 self.info.wm_overrideredirect(1)
@@ -145,11 +161,17 @@ class Change_path(Frame):
         list_item = self.Liste.curselection()
         for V in list_item:
             if V < self.Liste.size()-1:
-                if os.path.isfile(new_dir+"/"+ntpath.basename(self.list_vid_minus[V].File_name)):
-                    self.list_vid_minus[V].File_name=new_dir+"/"+ntpath.basename(self.list_vid_minus[V].File_name)
+                if self.list_vid_minus[V].type=="Video":
+                    if os.path.isfile(new_dir+"/"+ntpath.basename(self.list_vid_minus[V].File_name)):
+                        self.list_vid_minus[V].File_name=new_dir+"/"+ntpath.basename(self.list_vid_minus[V].File_name)
+                        for F in range(len(self.list_vid_minus[V].Fusion)):
+                            if os.path.isfile(new_dir + "/" + ntpath.basename(self.list_vid_minus[V].Fusion[F][1])):
+                                self.list_vid_minus[V].Fusion[F][1]= new_dir +"/" + ntpath.basename(self.list_vid_minus[V].Fusion[F][1])
+                else:
+                    if os.path.isdir(new_dir):
+                        self.list_vid_minus[V].File_name=new_dir
                     for F in range(len(self.list_vid_minus[V].Fusion)):
-                        if os.path.isfile(new_dir + "/" + ntpath.basename(self.list_vid_minus[V].Fusion[F][1])):
-                            self.list_vid_minus[V].Fusion[F][1]= new_dir +"/" + ntpath.basename(self.list_vid_minus[V].Fusion[F][1])
+                        self.list_vid_minus[V].Fusion[F][1] = new_dir
 
         self.update_list()
 
@@ -163,6 +185,11 @@ class Change_path(Frame):
         self.Liste.delete(0, 'end')
         for i in range(len(self.list_vid)):#Only video that are ready for tracking can be choose if the user wants to do tracking. If user wants to analyse, only videos which are already tracked.
             self.list_vid_minus.append(self.list_vid[i])
+            try:
+                self.list_vid[i].type
+            except:
+                self.list_vid[i].type = "Video"
+
             if check_vid(self.list_vid[i]):
                 self.Liste.insert(i, self.list_vid[i].User_Name + " ----- " + u'\u2713')
                 self.Liste.itemconfig(len(self.list_vid_minus) - 1, {'fg': self.list_colors["Fg_valide"]})

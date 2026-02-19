@@ -7,7 +7,8 @@ def resource_path(relative_path):
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        base_path = os.path.abspath("..")
+        base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
     return os.path.join(base_path, relative_path)
 
@@ -49,7 +50,7 @@ Mess_EN=dict(
     back="background", #see Names7
     back_copy="background",
     analyses_smooth="smoothing", #Here smoothing refers to applying a smoothing filter on data
-    analyses_thresh="distance threshold", # see Names6
+    analyses_thresh="speed threshold", # see Names6
     analyses_explo="exploration measurements", #Exploration refers to the capacity of an animal to explore its environment.
     analyses_inter="interactions measurements", #Between-individuals interactions
     analyses_deform="perspective correction",

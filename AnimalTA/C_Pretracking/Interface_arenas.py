@@ -5,9 +5,9 @@ import PIL.Image, PIL.ImageTk
 import numpy as np
 import math
 import random
-from AnimalTA.E_Post_tracking.b_Analyses import Function_extend_elements
-from AnimalTA.A_General_tools import Class_change_vid_menu, Function_draw_mask as Dr, Video_loader as VL, UserMessages, \
-    User_help, Color_settings
+from AnimalTA.E_Post_tracking.b_Analyses.Elements_management import Function_extend_elements
+from AnimalTA.A_General_tools import Class_change_vid_menu, Function_draw_arenas as Dr, Video_loader as VL, UserMessages, \
+    User_help, Color_settings, Message_simple_question as MsgBox
 from copy import deepcopy
 
 class Mask(Frame):
@@ -44,7 +44,9 @@ class Mask(Frame):
 
         #Relative to size of the image
         self.zoom_sq=[0,0,self.Vid.shape[1],self.Vid.shape[0]]
-        self.zoom_strength = 0.3
+        self.ZinSQ = [-1, ["NA", "NA"]]  # used to zoom in a particular area
+        self.zoom_strength = 1.25
+
 
 
         self.liste_points=[]
@@ -59,18 +61,8 @@ class Mask(Frame):
         #[ArenaID, PtID] with IDs being integers from 0
 
         #If a background was defined, the user will draw over it.
-        if self.Vid.Back[0]==1:
-            self.background=self.Vid.Back[1]
+        self.do_back()
 
-        else:#If not, we take the first frame as image (after cropping).
-            Which_part = 0
-            if self.Vid.Cropped[0]:
-                if len(self.Vid.Fusion) > 1:  # Si on a plus d'une video
-                    Which_part = [index for index, Fu_inf in enumerate(self.Vid.Fusion) if Fu_inf[0] <= self.Vid.Cropped[1][0]][-1]
-
-            self.capture = VL.Video_Loader(self.Vid, self.Vid.Fusion[Which_part][1])
-            self.background = self.capture[self.Vid.Cropped[1][0] - self.Vid.Fusion[Which_part][0]]
-            del self.capture
 
         self.image_to_show=np.copy(self.background)
 
@@ -92,20 +84,34 @@ class Mask(Frame):
         #Canvas to show img
         self.canvas_img = Canvas(self, bd=0, highlightthickness=0, **Color_settings.My_colors.Frame_Base)
         self.canvas_img.grid(row=1, column=0, rowspan=2, sticky="nsew")
-        self.canvas_img.bind("<Control-1>", self.Zoom_in)
-        self.canvas_img.bind("<Control-3>", self.Zoom_out)
-        self.canvas_img.bind('<Return>', self.New_ar_mask)
         self.canvas_img.bind("<Button-1>", self.callback_mask)
+        self.canvas_img.bind("<Control-B1-Motion>", self.Sq_Zoom_mov)
+        self.canvas_img.bind("<B1-ButtonRelease>", lambda x: self.Zoom(event=x,Zin=True))
+        self.canvas_img.bind("<Control-B3-ButtonRelease>", lambda x: self.Zoom(event=x,Zin=False))
+        self.canvas_img.bind('<Return>', self.New_ar_mask)
         self.canvas_img.bind("<Button-3>", self.Right_click)
         self.canvas_img.bind("<B3-Motion>", self.move_pt_mask)
         self.canvas_img.bind("<B1-Motion>", self.move_pt_mask)
         self.canvas_img.bind("<Key>", self.keypress)
         self.canvas_img.bind("<KeyRelease>", self.keyrelease)
         Grid.columnconfigure(self, 0, weight=1)  ########NEW
-        Grid.rowconfigure(self, 1, weight=1)  ########NEW
+        Grid.rowconfigure(self, 1, weight=1000)  ########NEW
         self.ratio=1
         self.final_width=750
         self.Size = self.Vid.shape
+
+
+        #Ton add more complex and less commonly used options
+        if not self.portion:
+            self.holder_opt = StringVar()
+            self.holder_opt.set("More options")#CTXT
+            Opt1 = OptionMenu(self, self.holder_opt,*["Adapt cropping"], command=self.do_more_options)#CTXT
+            Opt1.config(**Color_settings.My_colors.OptnMenu_Base)
+            Opt1.grid(row=3, column=0, sticky="ns")
+            Opt1["menu"].config(**Color_settings.My_colors.OptnMenu_Base)
+            Grid.rowconfigure(self, 3, weight=1)  ########NEW
+
+
 
 
         #Help user and parameters
@@ -192,74 +198,161 @@ class Mask(Frame):
         self.canvas_img.bind("<Configure>", self.afficher)
         self.afficher()
 
-    def Zoom_in(self, event):
-        #Zoom in in the image
-        self.new_zoom_sq=[0,0,0,0]
-        PX=event.x/((self.zoom_sq[2]-self.zoom_sq[0])/self.ratio)
-        PY=event.y/((self.zoom_sq[3]-self.zoom_sq[1])/self.ratio)
+    def do_back(self):
+        if self.Vid.Back[0]==1:
+            self.background=self.Vid.Back[1]
 
-        event.x = event.x * self.ratio + self.zoom_sq[0]
-        event.y = event.y * self.ratio + self.zoom_sq[1]
-        ZWX = (self.zoom_sq[2]-self.zoom_sq[0])*(1-self.zoom_strength)
-        ZWY = (self.zoom_sq[3]-self.zoom_sq[1])*(1-self.zoom_strength)
+        else:#If not, we take the first frame as image (after cropping).
+            Which_part = 0
+            if self.Vid.Cropped[0]:
+                if len(self.Vid.Fusion) > 1:  # Si on a plus d'une video
+                    Which_part = [index for index, Fu_inf in enumerate(self.Vid.Fusion) if Fu_inf[0] <= self.Vid.Cropped[1][0]][-1]
 
-        if ZWX>100:
-            self.new_zoom_sq[0] = int(event.x-PX*ZWX)
-            self.new_zoom_sq[2] = int(event.x+(1-PX)*ZWX)
-            self.new_zoom_sq[1] = int(event.y - PY*ZWY)
-            self.new_zoom_sq[3] = int(event.y + (1-PY)*ZWY)
-
-            self.ratio=ZWX/self.final_width
-            self.zoom_sq=self.new_zoom_sq
-            self.zooming = True
-            self.dessiner_Formes()
-            self.afficher()
-
-    def Zoom_out(self, event):
-        #Zoom out from the image
-        self.new_zoom_sq = [0, 0, 0, 0]
-        PX = event.x / ((self.zoom_sq[2] - self.zoom_sq[0]) / self.ratio)
-        PY = event.y / ((self.zoom_sq[3] - self.zoom_sq[1]) / self.ratio)
-
-        event.x = event.x * self.ratio + self.zoom_sq[0]
-        event.y = event.y * self.ratio + self.zoom_sq[1]
-
-        ZWX = (self.zoom_sq[2] - self.zoom_sq[0]) * (1 + self.zoom_strength)
-        ZWY = (self.zoom_sq[3] - self.zoom_sq[1]) * (1 + self.zoom_strength)
+            self.capture = VL.Video_Loader(self.Vid, self.Vid.Fusion[Which_part][1])
+            self.background = self.capture[self.Vid.Cropped[1][0] - self.Vid.Fusion[Which_part][0]]
+            del self.capture
 
 
-        if ZWX<self.Size[1] and ZWY<self.Size[0]:
-            if int(event.x - PX * ZWX)>=0 and int(event.x + (1 - PX) * ZWX)<=self.Size[1]:
-                self.new_zoom_sq[0] = int(event.x - PX * ZWX)
-                self.new_zoom_sq[2] = int(event.x + (1 - PX) * ZWX)
-            elif int(event.x + (1 - PX) * ZWX)>self.Size[1]:
-                self.new_zoom_sq[0] = int(self.Size[1]-ZWX)
-                self.new_zoom_sq[2] = int(self.Size[1])
-            elif int(event.x - PX * ZWX)<0:
-                self.new_zoom_sq[0] = 0
-                self.new_zoom_sq[2] = int(ZWX)
+    def do_more_options(self, choice):
+        '''To avoid having too much options displayed propose some supplementary options. This function is called by the "More options OptionMenu"'''
+        if choice=="Adapt cropping":
+            question = MsgBox.Messagebox(parent=self.parent, title="Automatic spatial cropping",
+                                         message="Be aware that automatique cropping will also apply to the background.",
+                                         Possibilities=["Only this video", "All untracked videos of the project", "Cancel"])#CTXT
+            self.parent.wait_window(question)
+            answer = question.result
 
-            if int(event.y - PY * ZWY)>=0 and int(event.y + (1 - PY) * ZWY)<=self.Size[0]:
-                self.new_zoom_sq[1] = int(event.y - PY * ZWY)
-                self.new_zoom_sq[3] = self.new_zoom_sq[1] + int(ZWY)
-
-            elif int(event.y + (1 - PY) * ZWY)>self.Size[0]:
-                self.new_zoom_sq[1] = int(self.Size[0]-ZWY)
-                self.new_zoom_sq[3] = int(self.Size[0])
-            elif int(event.y - PY * ZWY)<0:
-                self.new_zoom_sq[1] = 0
-                self.new_zoom_sq[3] = int(ZWY)
-            self.ratio = ZWX / self.final_width
+            if answer==0 or answer==1:
+                if answer==0:
+                    Vids_to_do=[self.Vid]
+                else:
+                    #We do the auto cropping only of the video is not tracked yet and if there are some arenas defined
+                    Vids_to_do=[V for V in self.main_frame.liste_of_videos if not V.Tracked and V.Mask[0]]
 
 
+                for V in Vids_to_do:
+                    if V==self.Vid:
+                        binary=np.zeros_like(self.background)
+                        binary=self.draw_binaries(binary)
+
+                    else:
+                        binary=Dr.draw_mask(V)
+                    coords = cv2.findNonZero(binary)  # Returns a list of points
+                    if coords is not None:
+                        # 2. Get bounding rectangle (x, y, w, h)
+                        x, y, w, h = cv2.boundingRect(coords)
+
+                        # We add a 1 pixel border
+                        w = w + 2
+                        h = h + 2
+                        x = x - 1
+                        y = y - 1
+
+                        V.Cropped_sp[0] = True
+                        V.Cropped_sp[1] = [y, x, y + h, x + w]
+                        V.shape = (V.Cropped_sp[1][2] - V.Cropped_sp[1][0],
+                                          V.Cropped_sp[1][3] - V.Cropped_sp[1][1])
+
+                        if V.Back[0]:
+                            V.Back[1]=V.Back[1][y:y+h,x:x+w]
+
+
+                    if V==self.Vid:
+                        for sh in range(len(self.liste_points)):
+                            for pt in range(len(self.liste_points[sh][0])):
+                                self.liste_points[sh][0][pt] = self.liste_points[sh][0][pt] - x
+                                self.liste_points[sh][1][pt] = self.liste_points[sh][1][pt] - y
+
+                        self.do_back()
+                        self.image_to_show = self.background
+                        self.view_mask = False
+                        self.dessiner_Formes()
+                        self.afficher()
+                    else:
+                        for sh in range(len(V.Mask[1])):
+                            for pt in range(len(V.Mask[1][sh][0])):
+                                V.Mask[1][sh][0][pt] = V.Mask[1][sh][0][pt] - x
+                                V.Mask[1][sh][1][pt] = V.Mask[1][sh][1][pt] - y
+
+
+
+
+            else:
+                print("Cancel")
+                self.holder_opt.set("More options")  # CTXT
+
+
+    def update_ratio(self, *args):
+        '''Calculate the ratio between the original size of the video and the displayed image'''
+        self.ratio=max((self.zoom_sq[2]-self.zoom_sq[0])/self.canvas_img.winfo_width(),(self.zoom_sq[3]-self.zoom_sq[1])/self.canvas_img.winfo_height())
+
+
+    def Sq_Zoom_beg(self, event):
+        event_t_x = int( self.ratio * (event.x - (self.canvas_img.winfo_width()-self.shape[1])/2)) + self.zoom_sq[0]
+        event_t_y = int( self.ratio * (event.y - (self.canvas_img.winfo_height()-self.shape[0])/2)) + self.zoom_sq[1]
+        self.ZinSQ=[0,[event_t_x,event_t_y],[event.x,event.y]]
+        self.canvas_img.delete("Rect")
+
+    def Sq_Zoom_mov(self,event):
+        self.canvas_img.delete("Rect")
+        event_t_x = int( self.ratio * (event.x - (self.canvas_img.winfo_width()-self.shape[1])/2)) + self.zoom_sq[0]
+        event_t_y = int( self.ratio * (event.y - (self.canvas_img.winfo_height()-self.shape[0])/2)) + self.zoom_sq[1]
+        zoom_sq = [min(self.ZinSQ[1][0], event_t_x), min(self.ZinSQ[1][1], event_t_y), max(self.ZinSQ[1][0], event_t_x),max(self.ZinSQ[1][1], event_t_y)]
+        if (zoom_sq[2] - zoom_sq[0]) > 50 and (zoom_sq[3] - zoom_sq[1])>50 and event_t_x>=0 and event_t_x<=self.Size[1] and event_t_y>=0 and event_t_y<=self.Size[0] and self.ZinSQ[1][0]>=0 and self.ZinSQ[1][0]<=self.Size[1] and self.ZinSQ[1][1]>=0 and self.ZinSQ[1][1]<=self.Size[0]:
+            self.canvas_img.create_rectangle(self.ZinSQ[2][0], self.ZinSQ[2][1], event.x, event.y, outline="white", tags="Rect")
         else:
-            self.new_zoom_sq=[0,0,self.Vid.shape[1],self.Vid.shape[0]]
-            self.ratio=self.Size[1]/self.final_width
+            self.canvas_img.create_rectangle(self.ZinSQ[2][0], self.ZinSQ[2][1], event.x, event.y, outline="red", tags="Rect")
+        self.canvas_img.create_rectangle(self.ZinSQ[2][0],self.ZinSQ[2][1],event.x,event.y, dash=(3,3), outline="black", tags="Rect")
 
-        self.zoom_sq = self.new_zoom_sq
-        self.zooming = False
-        self.dessiner_Formes()
-        self.afficher()
+        if self.ZinSQ[0]>=0:
+            self.ZinSQ[0]+=1
+
+
+    def Zoom(self, event, Zin=True):
+        '''When the user hold <Ctrl> and click on the frame, zoom on the image.
+        If <Ctrl> and right click, zoom out'''
+        if not bool(event.state & 0x1) and bool(event.state & 0x4):
+            self.new_zoom_sq = [0, 0, self.Size[1], self.Size[0]]
+            event.x = int( self.ratio * (event.x - (self.canvas_img.winfo_width()-self.shape[1])/2)) + self.zoom_sq[0]
+            event.y = int( self.ratio * (event.y - (self.canvas_img.winfo_height()-self.shape[0])/2)) + self.zoom_sq[1]
+            PX = event.x / self.Size[1]
+            PY = event.y / self.Size[0]
+
+            if self.ZinSQ[0]<3:
+                if Zin:
+                    new_total_width = self.Size[1] / self.ratio * self.zoom_strength
+                    new_total_height = self.Size[0] / self.ratio * self.zoom_strength
+                else:
+                    new_total_width = self.Size[1] / self.ratio / self.zoom_strength
+                    new_total_height = self.Size[0] / self.ratio / self.zoom_strength
+
+                if new_total_width>self.canvas_img.winfo_width():
+                    missing_px=new_total_width - (self.canvas_img.winfo_width()-5)
+                    ratio_old_new=self.Size[1]/new_total_width
+                    self.new_zoom_sq[0] = int(PX * missing_px*ratio_old_new)
+                    self.new_zoom_sq[2] = int(self.Size[1] - ((1 - PX) * missing_px*ratio_old_new))
+
+                if new_total_height>self.canvas_img.winfo_height():
+                    missing_px=new_total_height - (self.canvas_img.winfo_height()-5)
+                    ratio_old_new=self.Size[0]/new_total_height
+                    self.new_zoom_sq[1] = int(PY * missing_px*ratio_old_new)
+                    self.new_zoom_sq[3] = int(self.Size[0] - ((1 - PY) * missing_px*ratio_old_new))
+
+                if self.new_zoom_sq[3]-self.new_zoom_sq[1] > 50 and self.new_zoom_sq[2]-self.new_zoom_sq[0]>50:
+                    self.zoom_sq = self.new_zoom_sq
+                    self.update_ratio()
+                    self.afficher()
+
+            elif event.x>=0 and event.x<=self.Size[1] and event.y>=0 and event.y<=self.Size[0] and self.ZinSQ[1][0]>=0 and self.ZinSQ[1][0]<=self.Size[1] and self.ZinSQ[1][1]>=0 and self.ZinSQ[1][1]<=self.Size[0]:
+                zoom_sq = [min(self.ZinSQ[1][0], event.x), min(self.ZinSQ[1][1], event.y) , max(self.ZinSQ[1][0], event.x), max(self.ZinSQ[1][1], event.y)]
+                if (zoom_sq[2] - zoom_sq[0]) > 50 and (zoom_sq[3] - zoom_sq[1])>50:
+                    self.zoom_sq=zoom_sq
+                    self.update_ratio()
+                    self.afficher()
+                self.ZinSQ = [-1, ["NA", "NA"]]
+
+            self.canvas_img.delete("Rect")
+
 
     def validate(self, follow=False):
         #Save the information about arenas defined and delete this frame. If follow=True, a new frame with the next video is opened
@@ -270,8 +363,7 @@ class Mask(Frame):
         if not self.portion:
             self.Vid.Mask[1] = self.liste_points
             #We count the number of Arenas defined
-            mask = Dr.draw_mask(self.Vid)
-            Arenas, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            Arenas = Dr.get_arenas(self.Vid)
 
             if len(Arenas) < len(self.Vid.Track[1][6]):#We update the number of arenas to be tracked
                 self.Vid.Track[1][6]=self.Vid.Track[1][6][0:(len(Arenas))]
@@ -302,6 +394,7 @@ class Mask(Frame):
         self.HW.destroy()
         if not self.portion:
             self.main_frame.return_main()
+            self.boss.select_vid()
         if self.portion:
             self.parent.destroy()
 
@@ -352,13 +445,8 @@ class Mask(Frame):
 
 
     def Rotate_Ar(self, event):
-        event.x = int(event.x * self.ratio + self.zoom_sq[0])
-        event.y = int(event.y * self.ratio + self.zoom_sq[1])
-
         angle = math.atan2(event.y - self.selected_shapes[0][1], event.x - self.selected_shapes[0][0])
         angle=angle*180/math.pi
-
-
         dist=(event.x - self.selected_shapes[0][0])
 
         points_list=[]
@@ -387,6 +475,7 @@ class Mask(Frame):
         if self.Fpressed:
             pts_norm[:, 0] =  pts_norm[:, 0] * -1
 
+
         pts_rotated = pts_norm + self.selected_shapes[3]
 
         count=0
@@ -400,18 +489,21 @@ class Mask(Frame):
 
 
     def move_pt_mask(self, event):
+        event.x = int(self.ratio * (event.x - (self.canvas_img.winfo_width() - self.shape[1]) / 2) + self.zoom_sq[0])
+        event.y = int(self.ratio * (event.y - (self.canvas_img.winfo_height() - self.shape[0]) / 2) + self.zoom_sq[1])
+
         if not self.Ctrlpressed:
             #Move a selected point
             if len(self.Pt_select) > 0:
-                self.liste_points[self.Pt_select[0]][0][self.Pt_select[1]]=event.x * self.ratio + self.zoom_sq[0]
-                self.liste_points[self.Pt_select[0]][1][self.Pt_select[1]]=event.y * self.ratio + self.zoom_sq[1]
+                self.liste_points[self.Pt_select[0]][0][self.Pt_select[1]]=event.x
+                self.liste_points[self.Pt_select[0]][1][self.Pt_select[1]]=event.y
                 self.dessiner_Formes()#Show the result
                 self.afficher()
 
             elif len(self.selected_shapes[1]) > 0 and not self.Rpressed and (event.state==264 or event.state==265):
                 # Move a shape
-                transla = [int((event.x * self.ratio + self.zoom_sq[0]) - self.selected_shapes[0][0]),
-                           int((event.y * self.ratio + self.zoom_sq[1]) - self.selected_shapes[0][1])]
+                transla = [int((event.x ) - self.selected_shapes[0][0]),
+                           int((event.y) - self.selected_shapes[0][1])]
                 for sh in range(len(self.selected_shapes[1])):
                     for pt in range(len(self.selected_shapes[2][sh][0])):
                         self.liste_points[self.selected_shapes[1][sh]][0][pt] = self.selected_shapes[2][sh][0][pt] + \
@@ -451,15 +543,15 @@ class Mask(Frame):
         for j in range(len(self.liste_points)):
             if self.liste_points[j][3]==1:
                 if len(self.liste_points[j][0]) > 1:
-                    self.image_to_show, _ = Dr.Draw_elli(self.image_to_show, self.liste_points[j][0], self.liste_points[j][1],self.liste_points[j][2],thick=round(2*self.ratio))
+                    self.image_to_show, _ = Dr.Draw_elli(self.image_to_show, self.liste_points[j][0], self.liste_points[j][1],self.liste_points[j][2],thick=max(round(2*self.ratio),1))
 
             elif self.liste_points[j][3]==2:
                 if len(self.liste_points[j][0])>1:
-                    self.image_to_show, _= Dr.Draw_rect(self.image_to_show, self.liste_points[j][0], self.liste_points[j][1],self.liste_points[j][2],thick=round(2*self.ratio))
+                    self.image_to_show, _= Dr.Draw_rect(self.image_to_show, self.liste_points[j][0], self.liste_points[j][1],self.liste_points[j][2],thick=max(round(2*self.ratio),1))
 
             elif self.liste_points[j][3]==3:
                 if len(self.liste_points[j][0])>1:
-                    self.image_to_show, _ = Dr.Draw_Poly(self.image_to_show, self.liste_points[j][0], self.liste_points[j][1],self.liste_points[j][2],thick=round(2*self.ratio))
+                    self.image_to_show, _ = Dr.Draw_Poly(self.image_to_show, self.liste_points[j][0], self.liste_points[j][1],self.liste_points[j][2],thick=max(round(2*self.ratio),1))
 
             for i in range(len(self.liste_points[j][0])):
                 if self.liste_points[j][4]:  # If this is filled shape
@@ -509,8 +601,11 @@ class Mask(Frame):
         self.callback_mask(event=event, add=False)
 
     def callback_mask(self, event, add=True):
-        event.x = event.x * self.ratio + self.zoom_sq[0]
-        event.y = event.y * self.ratio + self.zoom_sq[1]
+        if not bool(event.state & 0x1) and bool(event.state & 0x4):
+            self.Sq_Zoom_beg(event)
+
+        event.x = int(self.ratio * (event.x - (self.canvas_img.winfo_width() - self.shape[1]) / 2) + self.zoom_sq[0])
+        event.y = int(self.ratio * (event.y - (self.canvas_img.winfo_height() - self.shape[0]) / 2) + self.zoom_sq[1])
         self.selected_shapes = [[event.x,event.y],[],[],[]]
 
         if self.Which_ar == None:#If it is the first point created
@@ -533,12 +628,12 @@ class Mask(Frame):
 
             if len(self.Pt_select) < 1: #And we are not clicking on an existing arena
                 empty = np.zeros([self.image_to_show.shape[0], self.image_to_show.shape[1], 1], np.uint8)
-                empty2=self.draw_binaries(empty, thick=int(self.ratio * 7))
+                empty2=self.draw_binaries(empty, thick=int(self.ratio * 8.5))
 
                 if empty2[int(event.y),int(event.x)]==255:
-                    empty = np.zeros([self.image_to_show.shape[0], self.image_to_show.shape[1], 1], np.uint8)
                     empty = self.draw_binaries(empty, thick=-1)
-                    empty = self.draw_binaries(empty, thick=int(self.ratio * 7))
+                    empty = cv2.circle(empty,(int(event.x),int(event.y)), int(self.ratio * (9/2)), 255, -1)
+
                     cnts,_ = cv2.findContours(empty, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
                     main_cnt_found=False
@@ -599,18 +694,31 @@ class Mask(Frame):
 
     def afficher(self, *args):
         #Show the image
+        self.update_ratio()
+        self.final_width=int(self.Size[1]/self.ratio)
+
         self.TMP_image_to_show=np.copy(self.image_to_show)
-        best_ratio = max(self.Size[1] / (self.canvas_img.winfo_width()),
-                         self.Size[0] / (self.canvas_img.winfo_height()))
-        prev_final_width=self.final_width
-        self.final_width=int(self.Size[1]/best_ratio)
-        self.ratio=self.ratio*(prev_final_width/self.final_width)
+        self.shape = self.TMP_image_to_show.shape
+
+        if not self.Size==self.TMP_image_to_show.shape:
+            self.Size = self.TMP_image_to_show.shape
+            self.zoom_sq = [0, 0, self.Size[1], self.Size[0]]  # If not, we show the cropped frames
 
         self.image_to_show2 = self.TMP_image_to_show[self.zoom_sq[1]:self.zoom_sq[3], self.zoom_sq[0]:self.zoom_sq[2]]
-        self.TMP_image_to_show2 = cv2.resize(self.image_to_show2, (self.final_width, int(self.final_width * (self.Size[0] / self.Size[1]))))
-        self.image_to_show3 = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(self.TMP_image_to_show2))
-        self.canvas_img.create_image(0, 0, image=self.image_to_show3, anchor=NW)
-        self.canvas_img.config(width=self.final_width, height=int(self.final_width * (self.Size[0] / self.Size[1])))
+
+        width=int((self.zoom_sq[2]-self.zoom_sq[0])/self.ratio)
+        height=int((self.zoom_sq[3]-self.zoom_sq[1])/self.ratio)
+
+        TMP_image_to_show2 = cv2.resize(self.image_to_show2,(width, height))
+        self.shape= TMP_image_to_show2.shape
+
+        self.image_to_show3 = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(TMP_image_to_show2))
+        self.can_import = self.canvas_img.create_image((self.canvas_img.winfo_width() - self.shape[1]) / 2,
+                                                         (self.canvas_img.winfo_height() - self.shape[0]) / 2,
+                                                         image=self.image_to_show3, anchor=NW)
+
+        self.canvas_img.config(height=self.shape[1], width=self.shape[0])
+        self.canvas_img.itemconfig(self.can_import, image=self.image_to_show3)
 
         empty=np.zeros([self.image_to_show.shape[0],self.image_to_show.shape[1],1],np.uint8)
         self.draw_binaries(empty)

@@ -1,7 +1,7 @@
 from tkinter import *
 from tkinter import ttk
 from AnimalTA.E_Post_tracking.b_Analyses import Interface_sequences
-from AnimalTA.A_General_tools import Function_draw_mask, UserMessages, Class_loading_Frame, Color_settings
+from AnimalTA.A_General_tools import Function_draw_arenas, UserMessages, Class_loading_Frame, Color_settings
 import cv2
 import numpy as np
 import PIL
@@ -51,7 +51,7 @@ class Lists(Frame):
         self.yscrollbar.config(command=self.Liste_objects.yview)
         ID = 0
 
-        for Seq in [s.Seq_name.get() for s in self.boss.liste_sequences if s!=None]:
+        for Seq in [s.Seq_name.get() for s in self.boss.liste_sequences if s!=None and s.to_keep]:
             self.Liste_objects.insert(END, Seq)
             ID += 1
 
@@ -163,7 +163,7 @@ class Lists(Frame):
         Load_show.grid(row=6,column=0,columnspan=6)
 
         #Extend the elements to other arenas
-        all_seqs=[self.boss.convert_seq(s) for s in self.boss.liste_sequences if s != None]
+        all_seqs=[self.boss.convert_seq(s) for s in self.boss.liste_sequences if s != None and s.to_keep]
         list_of_seqs_copy=[all_seqs[i] for i in self.Liste_objects.curselection()]
 
         Np_style_pts=np.array([self.pointers[i] for i in self.Liste_Vids.curselection()])
@@ -180,16 +180,28 @@ class Lists(Frame):
                 if IndID in [self.pointers[i][2] for i in self.Liste_Vids.curselection() if self.pointers[i][0]==Vid]:#If the individual was selected
                     if not (IndID==self.Current_Ind and Vid == self.Current_Vid):#We ensure it is not the current arena
                         for seq in list_of_seqs_copy:
-                            if seq[0] not in [seq_sub[0] for seq_sub in Vid.Sequences[IndID]]:
-                                Vid.Sequences[IndID].append(seq)
-                            else:
-                                position = [seq_sub[0] for seq_sub in Vid.Sequences[IndID]].index(seq[0])
-                                Vid.Sequences[IndID][position] = seq
+                            to_add=True
+                            if (seq[1][0] == "Auto" and seq[1][2]=="Element of interest") or seq[1][0] == "Spatial":#We ensure that the element was already present in the other arenas, of not it is not copied
+                                to_add=False
 
-                            #we first check if an element of interest with similar name has already been defined:
+                                for shape in Vid.Analyses[1][Vid.Identities[IndID][0]]:
+                                    if (seq[1][3]== str(shape[3]) or ("First_in_" + str(shape[3])) == seq[1][3] or (
+                                            "Last_in_" + str(shape[3])) == seq[1][3] or (
+                                            "Crossing_" + str(shape[3])) == seq[1][3]):
+                                        to_add=True
+                                        break
 
-
-
+                            if to_add:
+                                try:
+                                    if seq[0] not in [seq_sub[0] for seq_sub in Vid.Sequences[IndID]]: #we check if an element of interest with similar name has already been defined:
+                                        Vid.Sequences[IndID].append(seq)
+                                    else:
+                                        position = [seq_sub[0] for seq_sub in Vid.Sequences[IndID]].index(seq[0])
+                                        Vid.Sequences[IndID][position] = seq
+                                except:
+                                    print(IndID)
+                                    print(Vid.Sequences)
+                                    print(Vid.Sequences[IndID])
 
 
         self.parent.destroy()
@@ -226,9 +238,7 @@ class Lists(Frame):
 
 
         del capture
-        mask= Function_draw_mask.draw_mask(self.pointers[index][0])
-        self.Arenas, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        self.Arenas = Function_draw_mask.Organise_Ars(self.Arenas)
+        self.Arenas =Function_draw_arenas.get_arenas(self.pointers[index][0])
 
         for Ar in range(len(self.Arenas)):
             cnt_M=cv2.moments(self.Arenas[Ar])

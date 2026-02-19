@@ -2,8 +2,8 @@ from tkinter import *
 import cv2
 import numpy as np
 from AnimalTA.E_Post_tracking import Coos_loader_saver as CoosLS
-from AnimalTA.E_Post_tracking.b_Analyses import Functions_Analyses_Speed, Class_rows_analyses, Interface_smooth_param, Interface_deformation, Functions_deformation
-from AnimalTA.A_General_tools import Class_change_vid_menu, Class_Lecteur, Function_draw_mask, Interface_extend, \
+from AnimalTA.E_Post_tracking.b_Analyses import Functions_Analyses_Speed, Class_rows_analyses, Interface_smooth_param, Interface_deformation, Functions_deformation, Interface_other_ana
+from AnimalTA.A_General_tools import Class_change_vid_menu, Class_Lecteur, Function_draw_arenas, Interface_extend, \
     UserMessages, User_help, Class_stabilise, Class_loading_Frame, Color_settings
 import copy
 import math
@@ -32,7 +32,6 @@ class Analyse_track(Frame):
         self.Video_liste = Video_liste
         self.Vid = Vid
         self.grid(row=0, column=0, rowspan=2, sticky="nsew")
-        self.highlight = False
         self.show_all = False
         self.speed=speed
 
@@ -43,8 +42,6 @@ class Analyse_track(Frame):
         self.LanguageO = self.Language.get()
         self.Messages = UserMessages.Mess[self.Language.get()]
         f.close()
-
-        self.Calc_speed = Functions_Analyses_Speed.speed_calculations()  # We create classes linked to the different kind of analyses
 
         self.Infos_explo = [0, 1, 2]  # Characteristics of the exploration parameters
         self.Infos_inter = 0  # Threshold under which two targets are considered as neighbors
@@ -223,6 +220,13 @@ class Analyse_track(Frame):
         self.liste_ana[len(self.liste_ana) - 1].bind("<Leave>", self.HW.remove_tmp_message)
 
 
+        bouton_more_ana = Button(Liste_analyses, text="More Analysis", command=self.more_ana, **Color_settings.My_colors.Button_Base)
+        bouton_more_ana.grid(row=len(self.liste_ana)*2, columnspan=3,column=0, sticky="nswe")
+        bouton_more_ana.bind("<Enter>", lambda a: self.HW.change_tmp_message("Add more personalised analyses"))
+        bouton_more_ana.bind("<Leave>", self.HW.remove_tmp_message)
+
+
+
         # Navigation buttons
         self.bouton_save = Button(self.User_params_cont, text=self.Messages["Control3"],
                                   command=self.save_And_quit, **Color_settings.My_colors.Button_Base)
@@ -253,7 +257,7 @@ class Analyse_track(Frame):
     def extend_glob_thresh(self):
         """ Extend the movement threshold to other videos"""
         newWindow = Toplevel(self.parent.master)
-        interface = Interface_extend.Extend(parent=newWindow, value=self.Calc_speed.seuil_movement,
+        interface = Interface_extend.Extend(parent=newWindow, value=self.Vid.Analyses[0],
                                             boss=self.main_frame, Video_file=self.Vid, type="analyses_thresh")
 
     def extend_glob_explo(self):
@@ -272,6 +276,14 @@ class Analyse_track(Frame):
         newWindow = Toplevel(self.parent.master)
         interface = Interface_extend.Extend(parent=newWindow, value=self.Vid.Analyses[4].copy(), boss=self.main_frame,
                                             Video_file=self.Vid, type="analyses_deform")
+
+    def more_ana(self):
+        '''Allow for more perosnalized analysis'''
+        newWindow = Toplevel(self.parent.master)
+        interface = Interface_other_ana.Details_other(parent=newWindow, main=self.main_frame, Vid=self.Vid)
+
+
+
     def on_frame_conf(self, *arg):
         # Change canvas' size according to the main window size
         self.Liste_analyses.configure(scrollregion=self.Liste_analyses.bbox("all"))
@@ -285,12 +297,10 @@ class Analyse_track(Frame):
         if len(self.Vid.Analyses[4][0]) > 0:
             self.Coos=Functions_deformation.deform_coos(self.Coos, self.Vid.Analyses[4][0])
         if self.Check_Smoothed.get():
-            self.Coos = self.smooth_coos(self.Coos)
+            self.Coos = self.smooth_coos(self.Coos, self.load_frame)
         self.smooth_button()
 
-        mask = Function_draw_mask.draw_mask(self.Vid)
-        Arenas, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        self.Arenas = Function_draw_mask.Organise_Ars(Arenas)
+        self.Arenas =Function_draw_arenas.get_arenas(self.Vid)
 
         if modif:
             self.modif_image()
@@ -309,16 +319,17 @@ class Analyse_track(Frame):
 
         return(coos)
 
-    def smooth_coos(self, coos):
+    def smooth_coos(self, coos, loading=None):
         if len(self.Vid.Analyses[4][0]) > 0:
             progress = 0.5
         else:
             progress = 0
         """Apply the savgol_filter to smoothen the trajectories"""
         for ind in range(self.NB_ind):
-            self.load_frame.show_load(progress+((ind / self.NB_ind) * (1-progress)))
+            if loading!=None:
+                loading.show_load(progress+((ind / self.NB_ind) * (1-progress)))
             ind_coo = [[np.nan if val == -1000 else val for val in row] for row in coos[ind]]
-            ind_coo = np.array(ind_coo, dtype=np.float)
+            ind_coo = np.array(ind_coo, dtype=float)
             for column in range(2):
                 Pos_NA = np.where(np.isnan(ind_coo[:, column]))[0]
                 debuts = [0]
@@ -388,24 +399,20 @@ class Analyse_track(Frame):
         self.HW.grid_forget()
         self.HW.destroy()
         self.main_frame.return_main()
+        self.main_frame.selected_vid = self.Vid
+        self.main_frame.update_projects
         del self
 
     def save(self):
         # Save the parameters
-        self.Vid.Analyses[0] = self.Calc_speed.seuil_movement  # We save the movement threshold
-
         # Pickle does not accept tkinter DoubleVar:
-        for Ar in self.Calc_speed.Areas:
-            for shape in Ar:
-                shape[2] = float(shape[2].get())
-        self.Vid.Analyses[1] = copy.deepcopy(self.Calc_speed.Areas)
         if self.Check_Smoothed.get():
             self.Vid.Smoothed = [self.window_length, self.polyorder]  # We save smooth
         else:
             self.Vid.Smoothed = [0, 0]  # We save smooth
 
-        self.Vid.Analyses[2] = self.Infos_explo  # We save the movement threshold
-        self.Vid.Analyses[3] = self.Infos_inter  # We save the movement threshold
+        self.Vid.Analyses[2] = self.Infos_explo
+        self.Vid.Analyses[3] = self.Infos_inter
 
     #What happen when the user interacts with the frame canvas
     def pressed_can(self, Pt, *args):
@@ -427,21 +434,7 @@ class Analyse_track(Frame):
         Grid.rowconfigure(self, 1, weight=100)
 
         #Find the arenas defined by the user
-        mask = Function_draw_mask.draw_mask(self.Vid)
-        Arenas, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        self.Arenas = Function_draw_mask.Organise_Ars(Arenas)
-
-        try:
-            self.Calc_speed.seuil_movement = self.Vid.Analyses[0]
-            if len(self.Vid.Analyses[1]) > 0:
-                self.Calc_speed.Areas = copy.deepcopy(self.Vid.Analyses[1])
-                # Pickle does not accept tkinter DoubleVar:
-                for Ar in self.Calc_speed.Areas:
-                    for shape in Ar:
-                        shape[2] = DoubleVar(value=shape[2])
-        except Exception as e:
-            print(e)
-            pass
+        self.Arenas =Function_draw_arenas.get_arenas(self.Vid)
 
         try:
             self.Infos_explo = self.Vid.Analyses[2]
@@ -524,6 +517,122 @@ class Analyse_track(Frame):
             self.bouton_show_all_traj.config(background=Color_settings.My_colors.list_colors["Validate"], fg=Color_settings.My_colors.list_colors["Fg_Validate"])
         self.modif_image()
 
+
+    def draw_over(self, img, Xadd,Yadd,ratio):
+        if self.Vid.Cropped[0]:
+            to_remove = round(round((self.Vid.Cropped[1][0]) / self.Vid_Lecteur.one_every))
+        else:
+            to_remove = 0
+
+        for ind in range(self.NB_ind): #For each target
+            color = self.Vid.Identities[ind][2]
+            if not self.show_all:
+                #We draw the trajectories:
+                for prev in range(min(int(self.tail_size.get() * self.Vid.Frame_rate[1]),
+                                      int(self.Scrollbar.active_pos - to_remove))):
+                    if int(self.Scrollbar.active_pos - prev) >= round(
+                            ((self.Vid.Cropped[1][0]) / self.Vid_Lecteur.one_every)) and int(
+                            self.Scrollbar.active_pos) <= round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every):
+                        if self.Coos[ind,int(self.Scrollbar.active_pos - 1 - prev - to_remove),0] != -1000 and \
+                                self.Coos[ind,int(self.Scrollbar.active_pos - prev - to_remove),0] != -1000:
+                            TMP_tail_1 = (int(float(self.Coos[ind,int(self.Scrollbar.active_pos - 1 - prev - to_remove),0]+Xadd)/ratio),
+                                          int(float(self.Coos[ind,int(self.Scrollbar.active_pos - 1 - prev - to_remove),1]+Yadd)/ratio))
+
+                            TMP_tail_2 = (
+                            int(float(self.Coos[ind,int(self.Scrollbar.active_pos - prev - to_remove),0]+Xadd)/ratio),
+                            int(float(self.Coos[ind,int(self.Scrollbar.active_pos - prev - to_remove),1]+Yadd)/ratio))
+
+                            cv2.line(img, TMP_tail_1, TMP_tail_2, color, 2)
+            else:
+                for prev in range(1,
+                                  int((self.Vid.Cropped[1][1] - self.Vid.Cropped[1][0]) / self.Vid_Lecteur.one_every)):
+                    if self.Coos[ind, int(((self.Vid.Cropped[1][
+                        1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub), 0] != -1000 and \
+                            self.Coos[ind, int(((self.Vid.Cropped[1][
+                                1]) / self.Vid_Lecteur.one_every) - prev - self.to_sub), 0] != -1000:
+                        TMP_tail_1 = (
+                            int((self.Coos[ind, int(((self.Vid.Cropped[1][
+                                1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub), 0] + Xadd) / ratio),
+                            int((self.Coos[ind, int(((self.Vid.Cropped[1][
+                                1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub), 1] + Yadd) / ratio))
+
+                        TMP_tail_2 = (
+                            int((self.Coos[ind, int(((self.Vid.Cropped[1][
+                                1]) / self.Vid_Lecteur.one_every) - prev - self.to_sub), 0] + Xadd) / ratio),
+                            int((self.Coos[ind, int(((self.Vid.Cropped[1][
+                                1]) / self.Vid_Lecteur.one_every) - prev - self.to_sub), 1] + Yadd) / ratio))
+
+                        cv2.line(img, TMP_tail_1, TMP_tail_2, color,2)
+
+        Ind_pts = []
+        if self.Scrollbar.active_pos >= round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every) and self.Scrollbar.active_pos <= round( round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every)):
+            for ind in range(self.NB_ind):
+                #If we are watching interactions analyses
+                if self.CheckVar.get() == "InterInd":
+                    Ind_pts.append(self.Coos[ind,self.Scrollbar.active_pos - to_remove])
+
+                color = self.Vid.Identities[ind][2]
+                if self.Coos[ind,self.Scrollbar.active_pos - to_remove,0] != -1000:
+                    cv2.circle(img, (
+                    int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,0]+ Xadd) / ratio),
+                    int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,1]+ Yadd) / ratio)),
+                                         radius=3, color=color, thickness=-1)
+                    # Show speed:
+                    if self.CheckVar.get() == "Basics" and \
+                            self.Coos[ind,self.Scrollbar.active_pos - to_remove - 1,0] != -1000 and (
+                    self.Scrollbar.active_pos) >= round(((self.Vid.Cropped[1][0]) / self.Vid_Lecteur.one_every) + 1):
+                        speed = Functions_Analyses_Speed.calculate_speed(self, ind)
+                        if speed <= self.Vid.Analyses[0]:
+                            col_fond = (255, 0, 0)
+                        else:
+                            col_fond = (0, 255, 0)
+
+                        if not isinstance(speed, str):
+                            cv2.putText(img, str(round(speed, 2)), (
+                            int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,0]+ Xadd) / ratio) + 6,
+                            int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,1]+ Yadd) / ratio)-5),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.75, col_fond,5)
+                            cv2.putText(img, str(round(speed, 2)), (
+                            int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,0]+ Xadd) / ratio) + 6,
+                            int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,1]+ Yadd) / ratio)-5),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2)
+
+            if self.CheckVar.get() == "InterInd":#If we are watching interactions analyses
+                for Cur_ar in range(len(self.Vid.Track[1][6])):
+                    TMP_Ind_pts = [Ind_pts[idx] for idx, info in enumerate(self.Vid.Identities) if info[0] == Cur_ar and Ind_pts[idx][0] != -1000]
+                    if self.Vid.Track[1][6][Cur_ar] > 1 and len(TMP_Ind_pts)>1:
+                        dist, central = Functions_Analyses_Speed.calculate_interind_dist(Pts=TMP_Ind_pts,
+                                                                                         Scale=float(self.Vid.Scale[0]),
+                                                                                         draw=True, img=img,
+                                                                                         thick=2, Xadd=Xadd,Yadd=Yadd,ratio=ratio)
+
+                        if dist != "NA":
+                            cv2.putText(img, str(round(dist, 3)), (int((central[0]+Xadd)/ratio),int((central[1]+Yadd)/ratio)), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 5)
+                            cv2.putText(img, str(round(dist, 3)), (int((central[0]+Xadd)/ratio),int((central[1]+Yadd)/ratio)), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (175, 0, 0), 2)
+
+
+
+        for ind in range(len(self.Coos)):
+            if self.Scrollbar.active_pos - min(int(self.tail_size.get() * self.Vid.Frame_rate[1]),
+                                               int(self.Scrollbar.active_pos - self.to_sub)) == round(
+                    self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every) or self.show_all:
+                if self.Coos[ind][0][0] != -1000:
+                    cv2.circle(img, (int((self.Coos[ind][0][0]+ Xadd) / ratio), int((self.Coos[ind][0][1]+ Yadd) / ratio)),
+                                         radius=1, color=(0, 255, 0),
+                                         thickness=-1)
+
+            if self.Scrollbar.active_pos == round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every) or self.show_all:
+                if self.Coos[ind][len(self.Coos[0]) - 1][0] != -1000:
+                    cv2.circle(img, (
+                    int((self.Coos[ind][len(self.Coos[0]) - 1][0]+ Xadd) / ratio), int((self.Coos[ind][len(self.Coos[0]) - 1][1]+ Yadd) / ratio)),
+                                         radius=1, color=(183, 28, 28),
+                                         thickness=-1)
+
+
+
+
+
+
     def modif_image(self, img=[], **args):
         #Draw the illustration of the analyses on the top of the image
         if self.Vid.Cropped[0]:
@@ -547,154 +656,22 @@ class Analyse_track(Frame):
         if len(self.Vid.Analyses[4][0])>0:
             new_img =  cv2.warpPerspective(new_img, self.Vid.Analyses[4][0], (new_img.shape[1], new_img.shape[0]))
 
-        for ind in range(self.NB_ind): #For each target
-            color = self.Vid.Identities[ind][2]
-            if not self.show_all:
-                #We draw the trajectories:
-                for prev in range(min(int(self.tail_size.get() * self.Vid.Frame_rate[1]),
-                                      int(self.Scrollbar.active_pos - to_remove))):
-                    if int(self.Scrollbar.active_pos - prev) >= round(
-                            ((self.Vid.Cropped[1][0]) / self.Vid_Lecteur.one_every)) and int(
-                            self.Scrollbar.active_pos) <= round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every):
-                        if self.Coos[ind,int(self.Scrollbar.active_pos - 1 - prev - to_remove),0] != -1000 and \
-                                self.Coos[ind,int(self.Scrollbar.active_pos - prev - to_remove),0] != -1000:
-                            TMP_tail_1 = (int(float(
-                                self.Coos[ind,int(self.Scrollbar.active_pos - 1 - prev - to_remove),0])),
-                                          int(float(self.Coos[ind,
-                                                        int(self.Scrollbar.active_pos - 1 - prev - to_remove),1])))
-
-                            TMP_tail_2 = (
-                            int(float(self.Coos[ind,int(self.Scrollbar.active_pos - prev - to_remove),0])),
-                            int(float(self.Coos[ind,int(self.Scrollbar.active_pos - prev - to_remove),1])))
-
-                            new_img = cv2.line(new_img, TMP_tail_1, TMP_tail_2, color,
-                                               max(int(3 * self.Vid_Lecteur.ratio), 1))
-            else:
-                for prev in range(1,int((self.Vid.Cropped[1][1]-self.Vid.Cropped[1][0])/self.Vid_Lecteur.one_every)):
-                    if self.Coos[ind, int(((self.Vid.Cropped[1][
-                        1]) / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub), 0] != -1000 and \
-                            self.Coos[
-                                ind, round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every) - prev - self.to_sub,
-                                0] != -1000:
-                        TMP_tail_1 = (
-                            int(self.Coos[ind, round(
-                                (self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub), 0]),
-                            int(self.Coos[ind, round(
-                                (self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every) - 1 - prev - self.to_sub), 1]))
-
-                        TMP_tail_2 = (
-                            int(self.Coos[ind, round(
-                                (self.Vid.Cropped[1][1]/ self.Vid_Lecteur.one_every) - prev - self.to_sub), 0]),
-                            int(self.Coos[ind, round(
-                                (self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every) - prev - self.to_sub), 1]))
-
-                        new_img = cv2.line(new_img, TMP_tail_1, TMP_tail_2, color,
-                                           max(int(3 * self.Vid_Lecteur.ratio), 1))
+        self.img_no_shapes=new_img.copy()
 
 
-        Ind_pts = []
-        self.img_no_shapes = new_img
-        #We draw a circle for each target with an highligh on the selected one
-        if self.Scrollbar.active_pos >= round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every) and self.Scrollbar.active_pos <= round(
-                round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every)):
-            for ind in range(self.NB_ind):
-                #If we are watching interactions analyses
-                if self.CheckVar.get() == "InterInd":
-                    Ind_pts.append(self.Coos[ind,self.Scrollbar.active_pos - to_remove])
+        # If we are watching spacial analyses (i.e. elements of interest)
+        if self.CheckVar.get() == "Spatial" and self.Scrollbar.active_pos >= round(
+                ((self.Vid.Cropped[1][0] - 1) / self.Vid_Lecteur.one_every)) and self.Scrollbar.active_pos <= round(
+                ((self.Vid.Cropped[1][1] - 1) / self.Vid_Lecteur.one_every) + 1):
+            new_img = self.draw_shapes(np.copy(self.img_no_shapes), to_remove)
 
-                color = self.Vid.Identities[ind][2]
-                if self.Coos[ind,self.Scrollbar.active_pos - to_remove,0] != -1000:
-                    if self.highlight == ind:
-                        new_img = cv2.circle(new_img, (
-                        int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,0])),
-                        int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,1]))),
-                                             radius=max(int(5 * self.Vid_Lecteur.ratio), 2), color=(0, 0, 0),
-                                             thickness=-1)
-                        new_img = cv2.circle(new_img, (
-                        int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,0])),
-                        int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,1]))),
-                                             radius=max(int(2 * self.Vid_Lecteur.ratio), 3), color=(255, 255, 255),
-                                             thickness=-1)
+        # If we are watching exploration analyses (i.e. elements of interest)
+        if self.CheckVar.get() == "Exploration" and self.Scrollbar.active_pos >= round(
+                ((self.Vid.Cropped[1][0] - 1) / self.Vid_Lecteur.one_every)) and self.Scrollbar.active_pos <= round(
+                ((self.Vid.Cropped[1][1] - 1) / self.Vid_Lecteur.one_every) + 1):
+            new_img = self.draw_explo(np.copy(self.img_no_shapes), to_remove)
+    #We finally display the image
 
-                    new_img = cv2.circle(new_img, (
-                    int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,0])),
-                    int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,1]))),
-                                         radius=max(int(4 * self.Vid_Lecteur.ratio), 1), color=color, thickness=-1)
-                    # Show speed:
-                    if self.CheckVar.get() == "Basics" and \
-                            self.Coos[ind,self.Scrollbar.active_pos - to_remove - 1,0] != -1000 and (
-                    self.Scrollbar.active_pos) >= round(((self.Vid.Cropped[1][0]) / self.Vid_Lecteur.one_every) + 1):
-                        speed = self.Calc_speed.calculate_speed(self, ind)
-                        if speed <= self.Calc_speed.seuil_movement:
-                            col_fond = (255, 0, 0)
-                        else:
-                            col_fond = (0, 255, 0)
-
-                        if not isinstance(speed, str):
-                            cv2.putText(new_img, str(round(speed, 2)), (
-                            int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,0])) + 5,
-                            int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,1])) + 5),
-                                        cv2.FONT_HERSHEY_SIMPLEX, max(0.5, self.Vid_Lecteur.ratio), col_fond,
-                                        max(2, int(self.Vid_Lecteur.ratio * 7)))
-                            cv2.putText(new_img, str(round(speed, 2)), (
-                            int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,0])) + 5,
-                            int(float(self.Coos[ind,self.Scrollbar.active_pos - to_remove,1])) + 5),
-                                        cv2.FONT_HERSHEY_SIMPLEX, max(0.5, self.Vid_Lecteur.ratio), color,
-                                        max(1, int(self.Vid_Lecteur.ratio * 3)))
-
-            self.img_no_shapes = new_img
-
-            if self.CheckVar.get() == "InterInd":#If we are watching interactions analyses
-                for Cur_ar in range(len(self.Vid.Track[1][6])):
-                    TMP_Ind_pts = [Ind_pts[idx] for idx, info in enumerate(self.Vid.Identities) if
-                                   info[0] == Cur_ar and Ind_pts[idx][0] != -1000]
-                    if self.Vid.Track[1][6][Cur_ar] > 1 and len(TMP_Ind_pts)>1:
-
-
-                        new_img, dist, central = self.Calc_speed.calculate_interind_dist(Pts=TMP_Ind_pts,
-                                                                                         Scale=float(self.Vid.Scale[0]),
-                                                                                         draw=True, img=new_img,
-                                                                                         thick=max(1,
-                                                                                                   int(self.Vid_Lecteur.ratio * 3)))
-
-
-                        if dist != "NA":
-                            cv2.putText(new_img, str(round(dist, 3)), central, cv2.FONT_HERSHEY_SIMPLEX,
-                                        max(0.5, self.Vid_Lecteur.ratio), (0, 0, 0),
-                                        max(2, int(self.Vid_Lecteur.ratio * 5)))
-                            cv2.putText(new_img, str(round(dist, 3)), central, cv2.FONT_HERSHEY_SIMPLEX,
-                                        max(0.5, self.Vid_Lecteur.ratio), (175, 0, 0),
-                                        max(1, int(self.Vid_Lecteur.ratio * 3)))
-
-
-            # If we are watching spacial analyses (i.e. elements of interest)
-            if self.CheckVar.get() == "Spatial" and self.Scrollbar.active_pos >= round(
-                    ((self.Vid.Cropped[1][0] - 1) / self.Vid_Lecteur.one_every)) and self.Scrollbar.active_pos <= round(
-                    ((self.Vid.Cropped[1][1] - 1) / self.Vid_Lecteur.one_every) + 1):
-                new_img = self.draw_shapes(np.copy(self.img_no_shapes), to_remove)
-
-            # If we are watching exploration analyses (i.e. elements of interest)
-            if self.CheckVar.get() == "Exploration" and self.Scrollbar.active_pos >= round(
-                    ((self.Vid.Cropped[1][0] - 1) / self.Vid_Lecteur.one_every)) and self.Scrollbar.active_pos <= round(
-                    ((self.Vid.Cropped[1][1] - 1) / self.Vid_Lecteur.one_every) + 1):
-                new_img = self.draw_explo(np.copy(self.img_no_shapes), to_remove)
-        #We finally display the image
-
-        for ind in range(len(self.Coos)):
-            if self.Scrollbar.active_pos - min(int(self.tail_size.get() * self.Vid.Frame_rate[1]),
-                                               int(self.Scrollbar.active_pos - self.to_sub)) == round(
-                    self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every) or self.show_all:
-                if self.Coos[ind][0][0] != -1000:
-                    new_img = cv2.circle(new_img, (int(self.Coos[ind][0][0]), int(self.Coos[ind][0][1])),
-                                         radius=max(int(2 * self.Vid_Lecteur.ratio), 1), color=(0, 255, 0),
-                                         thickness=-1)
-
-            if self.Scrollbar.active_pos == round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every) or self.show_all:
-                if self.Coos[ind][len(self.Coos[0]) - 1][0] != -1000:
-                    new_img = cv2.circle(new_img, (
-                    int(self.Coos[ind][len(self.Coos[0]) - 1][0]), int(self.Coos[ind][len(self.Coos[0]) - 1][1])),
-                                         radius=max(int(2 * self.Vid_Lecteur.ratio), 1), color=(183, 28, 28),
-                                         thickness=-1)
 
         self.Vid_Lecteur.afficher_img(new_img)
 
@@ -702,14 +679,14 @@ class Analyse_track(Frame):
         #We crate an image that will be used as a transparent in which we see all the elements of interest
         overlay = np.zeros([img.shape[0], img.shape[1], 3], np.uint8)
         for Ar in range(len(self.Arenas)):
-            for shape in self.Calc_speed.Areas[Ar]:
+            for shape in self.Vid.Analyses[1][Ar]:
                 if shape[0] == "Point":
                     cv2.circle(img, shape[1][0], max(2, int(self.Vid_Lecteur.ratio * 5)), (0, 0, 0), -1)
                     cv2.circle(img, shape[1][0], max(1, int(self.Vid_Lecteur.ratio * 3)), (0, 0, 175), -1)
-                    cv2.circle(img, shape[1][0], int(round(float(shape[2].get()) * float(self.Vid.Scale[0]))),
+                    cv2.circle(img, shape[1][0], int(round(float(shape[2]) * float(self.Vid.Scale[0]))),
                                (0, 0, 100), max(1, int(self.Vid_Lecteur.ratio * 3)))
                     overlay = cv2.circle(overlay, shape[1][0],
-                                         int(round(float(shape[2].get()) * float(self.Vid.Scale[0]))), (0, 0, 100), -1)
+                                         int(round(float(shape[2]) * float(self.Vid.Scale[0]))), (0, 0, 100), -1)
 
                 if shape[0] == "Line":
                     for pt in shape[1]:
@@ -723,10 +700,10 @@ class Analyse_track(Frame):
                     img = cv2.drawContours(img, [self.Arenas[Ar]], -1, (255, 0, 0),
                                            max(1, int(self.Vid_Lecteur.ratio * 3)))
 
-                    if shape[2].get() > 0:
+                    if shape[2] > 0:
                         empty = np.zeros((img.shape[0], img.shape[1]), np.uint8)
                         border = cv2.drawContours(np.copy(empty), [self.Arenas[Ar]], -1, (255, 255, 255),
-                                                  int(round(shape[2].get() * float(self.Vid.Scale[0]) * 2)))
+                                                  int(round(shape[2] * float(self.Vid.Scale[0]) * 2)))
                         area = cv2.drawContours(np.copy(empty), [self.Arenas[Ar]], -1, (255, 255, 255), -1)
                         empty = cv2.bitwise_and(border, border, mask=area)
                         inside_border, _ = cv2.findContours(empty, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -748,7 +725,7 @@ class Analyse_track(Frame):
                     cnts, _ = cv2.findContours(border, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
                     border = cv2.drawContours(border, cnts, -1, (255, 255, 255),
-                                              int(round(shape[2].get() * float(self.Vid.Scale[0]) * 2)))
+                                              int(round(shape[2] * float(self.Vid.Scale[0]) * 2)))
                     area = cv2.drawContours(np.copy(empty), [self.Arenas[Ar]], -1, (255, 255, 255), -1)
                     empty = cv2.bitwise_and(border, border, mask=area)
                     inside_border, _ = cv2.findContours(empty, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -757,23 +734,23 @@ class Analyse_track(Frame):
 
                 if shape[0] == "Ellipse":
                     if len(shape[1]) > 1:
-                        Function_draw_mask.Draw_elli(img, [po[0] for po in shape[1]], [po[1] for po in shape[1]],
+                        Function_draw_arenas.Draw_elli(img, [po[0] for po in shape[1]], [po[1] for po in shape[1]],
                                                      (0, 255, 0), thick=max(1, int(self.Vid_Lecteur.ratio * 3)))
-                        Function_draw_mask.Draw_elli(overlay, [po[0] for po in shape[1]], [po[1] for po in shape[1]],
+                        Function_draw_arenas.Draw_elli(overlay, [po[0] for po in shape[1]], [po[1] for po in shape[1]],
                                                      (0, 255, 0), thick=-1)
 
                 if shape[0] == "Rectangle":
                     if len(shape[1]) > 1:
-                        Function_draw_mask.Draw_rect(img, [po[0] for po in shape[1]], [po[1] for po in shape[1]],
+                        Function_draw_arenas.Draw_rect(img, [po[0] for po in shape[1]], [po[1] for po in shape[1]],
                                                      color=(0, 75, 75), thick=max(1, int(self.Vid_Lecteur.ratio * 3)))
-                        Function_draw_mask.Draw_rect(overlay, [po[0] for po in shape[1]], [po[1] for po in shape[1]],
+                        Function_draw_arenas.Draw_rect(overlay, [po[0] for po in shape[1]], [po[1] for po in shape[1]],
                                                      color=(0, 100, 100), thick=-1)
 
                 if shape[0] == "Polygon":
                     if len(shape[1]) > 1:
-                        Function_draw_mask.Draw_Poly(img, [po[0] for po in shape[1]], [po[1] for po in shape[1]],
+                        Function_draw_arenas.Draw_Poly(img, [po[0] for po in shape[1]], [po[1] for po in shape[1]],
                                                      (75, 75, 0), thick=max(1, int(self.Vid_Lecteur.ratio * 3)))
-                        Function_draw_mask.Draw_Poly(overlay, [po[0] for po in shape[1]], [po[1] for po in shape[1]],
+                        Function_draw_arenas.Draw_Poly(overlay, [po[0] for po in shape[1]], [po[1] for po in shape[1]],
                                                      (150, 150, 0), thick=-1)
 
         grey = cv2.cvtColor(overlay, cv2.COLOR_BGR2GRAY)
@@ -785,7 +762,7 @@ class Analyse_track(Frame):
 
         # First the ones that will not appear transparent:
         for Ar in range(len(self.Arenas)):
-            for shape in self.Calc_speed.Areas[Ar]:
+            for shape in self.Vid.Analyses[1][Ar]:
                 if shape[0] == "Point":
                     for ind in [idx for idx,ident in enumerate(self.Vid.Identities) if ident[0]==Ar]:
                         if self.Coos[ind,self.Scrollbar.active_pos - to_remove,0] != -1000:
@@ -812,21 +789,23 @@ class Analyse_track(Frame):
                     for ind in [idx for idx,ident in enumerate(self.Vid.Identities) if ident[0]==Ar]:
                         if self.Coos[ind,self.Scrollbar.active_pos - to_remove,0] != -1000:
                             center = self.Coos[ind,self.Scrollbar.active_pos - to_remove]
-                            center = [int(float(center[0])), int(float(center[1]))]
-                            dist, proj = Functions_Analyses_Speed.calculate_dist_one_pt_Line(Ligne=shape[1], Pt=center,
-                                                                                   Scale=float(self.Vid.Scale[0]),
+                            center = [(float(center[0])), (float(center[1]))]
+                            dist, proj = Functions_Analyses_Speed.Calculate_distance_Line(Line=shape[1], Xs=np.array([center[0]]), Ys=np.array([center[1]]),
                                                                                    get_proj=True)
-                            proj = [int(float(proj[0])), int(float(proj[1]))]
+                            dist=dist[0]/float(self.Vid.Scale[0])
+                            proj = [int(float(proj[0][0])), int(float(proj[0][1]))]
+
                             cv2.line(img, (int(center[0]), int(center[1])), proj,
                                      self.Vid.Identities[ind][2],
                                      max(1, int(self.Vid_Lecteur.ratio * 3)))
-                            cv2.putText(img, str(round(dist, 3)), (int((float(center[0]) * 0.3 + proj[0] * 0.7)),
-                                                                   int((float(center[1]) * 0.3 + proj[1] * 0.7))),
+
+                            cv2.putText(img, str(round(dist, 3)), (int((float(center[0]) * 0.4 + proj[0] * 0.6)),
+                                                                   int((float(center[1]) * 0.4 + proj[1] * 0.6))),
                                         cv2.FONT_HERSHEY_DUPLEX, max(0.5, self.Vid_Lecteur.ratio),
                                         color=(0, 0, 0), thickness=max(1, int(self.Vid_Lecteur.ratio * 5)))
 
-                            cv2.putText(img, str(round(dist, 3)), (int((float(center[0]) * 0.3 + proj[0] * 0.7)),
-                                                                   int((float(center[1] * 0.3) + proj[1] * 0.7))),
+                            cv2.putText(img, str(round(dist, 3)), (int((float(center[0]) * 0.4 + proj[0] * 0.6)),
+                                                                   int((float(center[1] * 0.4) + proj[1] * 0.6))),
                                         cv2.FONT_HERSHEY_DUPLEX, max(0.5, self.Vid_Lecteur.ratio),
                                         color=self.Vid.Identities[ind][2],
                                         thickness=max(1, int(self.Vid_Lecteur.ratio * 3)))
@@ -849,7 +828,7 @@ class Analyse_track(Frame):
                         cv2.circle(empty, (int(float(pt[0])), int(float(pt[1]))),
                                    int(radius * float(self.Vid.Scale[0])), (1), -1)
 
-                mask_glob = Function_draw_mask.draw_mask(self.Vid)
+                mask_glob = Function_draw_arenas.draw_mask(self.Vid)
                 mask = np.zeros((img.shape[0], img.shape[1], 1), np.uint8)
                 mask = cv2.drawContours(mask, [self.Arenas[Ar]], -1, (255), -1)
                 mask = cv2.bitwise_and(mask, mask_glob)

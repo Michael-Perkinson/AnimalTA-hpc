@@ -4,8 +4,6 @@ import os
 import pickle
 
 
-
-
 def change_params(Param,new_val):
     Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
     with open(Param_file, 'rb') as fp:
@@ -80,6 +78,7 @@ class Settings_panel(Frame):
 
         self.Keep_entrance=BooleanVar()
         self.Keep_entrance.set(self.Params["Keep_entrance"])  # 0=greyscaled, 1=based on color, 3=based on hsv
+
 
         Grid.columnconfigure(self, 0, weight=1)
         Grid.columnconfigure(self, 1, weight=1)
@@ -167,23 +166,18 @@ class Settings_panel(Frame):
 
         Grid.rowconfigure(Frame_tracking, pos, weight=1000)
 
-
-
         #Correction parameters
-        Frame_correction = Frame(self, highlightbackground=list_colors["Frame"], highlightthickness=2, borderwidth=2, background=list_colors["Table1"], relief="ridge")
+        Frame_other = Frame(self, highlightbackground=list_colors["Frame"], highlightthickness=2, borderwidth=2, background=list_colors["Table1"], relief="ridge")
+        Frame_other.grid(row=0, column=2, sticky="nsew")
         #Frame_correction.grid(row=0, column=2, sticky="nsew")
-        Grid.columnconfigure(Frame_correction, 0, weight=1)
-        Grid.columnconfigure(Frame_correction, 1, weight=10)
+        Grid.columnconfigure(Frame_other, 0, weight=1)
+        Grid.columnconfigure(Frame_other, 1, weight=10)
 
         pos=0
-        Label(Frame_correction, text=self.Messages["Settings0c"], font=("Helvetica",15,"bold"), justify=CENTER, bg=list_colors["Title1"], fg=list_colors["Fg_Title1"]).grid(row=pos, columnspan=2, sticky="enw")
-        Grid.rowconfigure(Frame_correction, pos, weight=0)
+        #CTXT
+        Label(Frame_other, text="Other", font=("Helvetica",15,"bold"), justify=CENTER, bg=list_colors["Title1"], fg=list_colors["Fg_Title1"]).grid(row=pos, columnspan=2, sticky="enw")
+        Grid.rowconfigure(Frame_other, pos, weight=0)
         pos+=1
-
-        #Checkbutton(Frame_correction, text=self.Messages["Settings7"], variable=self.Hide_columns, selectcolor=row_colors[pos%2+6], activeforeground=row_colors[pos%2+4], fg=row_colors[pos%2+4], activebackground=row_colors[pos%2], bg=row_colors[pos%2], anchor="w").grid(row=pos, columnspan=2, sticky="new")
-        #Grid.rowconfigure(Frame_correction, pos, weight=1)
-        #pos+=1
-
 
         #General
         Button(self, text=self.Messages["Validate"], background=list_colors["Validate"], activebackground=list_colors["Validate"], fg=list_colors["Fg_Validate"], activeforeground=list_colors["Fg_Validate"], command=self.validate, borderwidth=4).grid(row=1, columnspan=3, sticky="nsew")

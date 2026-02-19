@@ -2,7 +2,7 @@ from tkinter import *
 import os
 import cv2
 import PIL.Image, PIL.ImageTk
-from AnimalTA.A_General_tools import Video_loader as VL, UserMessages, User_help, Color_settings
+from AnimalTA.A_General_tools import Video_loader as VL, UserMessages, User_help, Color_settings, Class_change_vid_menu
 import numpy as np
 import pickle
 
@@ -10,7 +10,7 @@ class Background(Frame):
     """This frame will appear when the user is not satisfied with the automatic background and wants to change it.
     It basically allow the user to select a color in the fram eand then to paint with this color.
     """
-    def __init__(self, parent, boss, main_frame, Video_file, portion=False, **kwargs):
+    def __init__(self, parent, boss, main_frame, Video_file, portion=False, ref_frame=None, **kwargs):
         Frame.__init__(self, parent, bd=5, **kwargs)
         self.config(**Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
         self.parent=parent
@@ -21,6 +21,7 @@ class Background(Frame):
         self.Tool_circle=BooleanVar()
         self.Tool_circle.set(True)
         self.mouse_pos=[0,0]
+        self.ref_frame=ref_frame
 
         if self.portion:#If you do a temporary background for a correction of a part of the video
             Grid.columnconfigure(self.parent, 0, weight=1)
@@ -45,12 +46,18 @@ class Background(Frame):
 
         self.zoom_sq=[0,0,self.Vid.shape[1],self.Vid.shape[0]]
 
+        if not self.portion:
+            self.choice_menu = Class_change_vid_menu.Change_Vid_Menu(self, self.main_frame, self.Vid, "back")
+            self.choice_menu.grid(row=0, column=0)
+
+        Grid.rowconfigure(self, 0, weight=0)
+        Grid.columnconfigure(self, 0, weight=1)
+
         #Creation of the canvas image
         self.canvas_img = Canvas(self, width=10, height=10, bd=0, highlightthickness=0, **Color_settings.My_colors.Frame_Base)
         self.canvas_img.update()
-        self.canvas_img.grid(row=0,column=0, sticky="nsew")
-        Grid.columnconfigure(self, 0, weight=1)
-        Grid.rowconfigure(self, 0, weight=1)
+        self.canvas_img.grid(row=1,column=0, sticky="nsew")
+        Grid.rowconfigure(self, 1, weight=1)
 
         self.Size = self.Vid.shape
         self.final_width = self.canvas_img.winfo_width()
@@ -59,6 +66,8 @@ class Background(Frame):
         self.ZinSQ = [-1, ["NA", "NA"]]  # used to zoom in a particular area
 
         self.canvas_img.bind("<Configure>", self.afficher)
+
+
 
         #Help user and parameters
         self.HW= User_help.Help_win(self.parent, default_message=self.Messages["Back2"], width=250,
@@ -85,9 +94,19 @@ class Background(Frame):
         RB_tool_shape_square = Radiobutton(self.canvas_user, text="\u25EF", variable=self.Tool_circle, value=True, **Color_settings.My_colors.Radiobutton_Base).grid(row=1,column=0)
         RB_tool_shape_circle=Radiobutton(self.canvas_user, text="\u2B1C", variable=self.Tool_circle, value=False, **Color_settings.My_colors.Radiobutton_Base).grid(row=1,column=1)
 
-        self.validate_button=Button(self.canvas_user,text=self.Messages["Validate"], command=self.validate, **Color_settings.My_colors.Button_Base)
+        self.validate_button=Button(self.canvas_user,text=self.Messages["Validate"], command=lambda: self.validate(follow=False), **Color_settings.My_colors.Button_Base)
         self.validate_button.config(background=Color_settings.My_colors.list_colors["Validate"],fg=Color_settings.My_colors.list_colors["Fg_Validate"])
-        self.validate_button.grid(row=2,column=0,columnspan=2,sticky="nsew")
+        self.validate_button.grid(row=2,column=0,sticky="nsew")
+
+        self.B_Validate_NContinue = Button(self.canvas_user, text=self.Messages["Validate_NC"],
+                                           **Color_settings.My_colors.Button_Base,
+                                           command=lambda: self.validate(follow=True))
+        self.B_Validate_NContinue.config(background=Color_settings.My_colors.list_colors["Validate"],
+                                         fg=Color_settings.My_colors.list_colors["Fg_Validate"])
+
+        if not self.portion:
+            self.B_Validate_NContinue.grid(row=2, column=1,  sticky="nsew")
+
 
         self.B_1Auto=Button(self.canvas_user,text=self.Messages["Back4"], command=self.auto_back, **Color_settings.My_colors.Button_Base)
         self.B_1Auto.config(background=Color_settings.My_colors.list_colors["Cancel"],fg=Color_settings.My_colors.list_colors["Fg_Cancel"])
@@ -107,7 +126,6 @@ class Background(Frame):
         self.canvas_img.bind("<Control-B1-Motion>", self.Sq_Zoom_mov)
         self.canvas_img.bind("<B1-ButtonRelease>", lambda x: self.Zoom(event=x,Zin=True))
         self.canvas_img.bind("<Control-B3-ButtonRelease>", lambda x: self.Zoom(event=x,Zin=False))
-        self.canvas_img.bind("<Control-B1-Motion>", self.Sq_Zoom_mov)
         self.bind_all("<Control-z>", self.remove_last)
         self.canvas_img.bind("<Button-3>", self.change_color)
         self.canvas_img.bind("<B1-Motion>", self.paint)
@@ -120,42 +138,43 @@ class Background(Frame):
         self.tool_view=self.canvas_img.create_oval((0,0,0,0))
         self.vide=[]
 
+
+
         self.Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
         with open(self.Param_file, 'rb') as fp:
             Params = pickle.load(fp)
         self.tool_size=Params["Back_tool"]
 
         self.canvas_img.update()
-
-
-
         self.afficher()
 
     def auto_back(self):
         #This function remove the previous background a redo a new one with the automatic process
-        self.Vid.make_back()
+        self.Vid.make_back(ref_frame=self.ref_frame)
         self.background=self.Vid.Back[1]
 
         if len(self.background.shape)==2:
             self.background = cv2.cvtColor(self.background.copy(), cv2.COLOR_GRAY2RGB)#We import the existing background
-
 
         self.liste_paints=[]
         self.afficher()
 
     def change_for_1(self):
         #This function remove the previous background and take the first frame of the video instead
+        if self.ref_frame is None:
+            frame_to_take=self.Vid.Cropped[1][0]
+        else:
+            frame_to_take=self.ref_frame
         self.liste_paints=[]
         Which_part=0
         if self.Vid.Cropped[0]:
             if len(self.Vid.Fusion) > 1:  # Si on a plus d'une video
-                Which_part = [index for index, Fu_inf in enumerate(self.Vid.Fusion) if Fu_inf[0] <= self.Vid.Cropped[1][0]][-1]
+                Which_part = [index for index, Fu_inf in enumerate(self.Vid.Fusion) if Fu_inf[0] <= frame_to_take][-1]
         self.capture = VL.Video_Loader(self.Vid, self.Vid.Fusion[Which_part][1])
-        self.Represent = self.capture[self.Vid.Cropped[1][0]-self.Vid.Fusion[Which_part][0]]
+        self.Represent = self.capture[frame_to_take-self.Vid.Fusion[Which_part][0]]
 
-        if len(self.Represent.shape) == 2:
-            self.background = cv2.cvtColor(self.Represent.copy(),
-                                           cv2.COLOR_GRAY2RGB)  # We import the existing background
+        if len(self.Represent.shape) >= 2:
+            self.background = self.Represent.copy()  # We import the existing background
 
         self.afficher()
 
@@ -414,7 +433,7 @@ class Background(Frame):
 
         self.canvas_img.config(height=self.shape[1], width=self.shape[0])
         self.canvas_img.itemconfig(self.can_import, image=self.image_to_show3)
-        self.update_idletasks()
+
 
     def remove_last(self, *arg):
         #To remove the last painting (Ctrl-Z)
@@ -422,7 +441,7 @@ class Background(Frame):
             self.liste_paints.pop()
             self.afficher()
 
-    def validate(self):
+    def validate(self, follow):
         #Validate the changes and save the new background
         if len(self.liste_paints)>0:
             for paint in self.liste_paints:
@@ -436,7 +455,22 @@ class Background(Frame):
         if self.portion:
             self.boss.PortionWin.grab_set()
 
-        self.End_of_window()
+        if follow and self.Vid != self.main_frame.liste_of_videos[-1]:
+            found=False
+            passed=False
+            for i in range(len(self.main_frame.liste_of_videos)-1):
+                if self.main_frame.liste_of_videos[i]==self.Vid or passed:
+                    passed=True
+                    if self.main_frame.liste_of_videos[i+1].Back[0]==1:
+                        self.choice_menu.change_vid(self.main_frame.liste_of_videos[i+1].User_Name)
+                        found=True
+                        break
+            if not found:
+                self.End_of_window()
+
+        else:
+            self.End_of_window()
+
 
     def End_of_window(self):
         #End the window properly
@@ -448,6 +482,7 @@ class Background(Frame):
         self.canvas_user.destroy()
         if not self.portion:
             self.main_frame.return_main()
+            self.boss.select_vid()
         if self.portion:
             self.parent.destroy()
 
