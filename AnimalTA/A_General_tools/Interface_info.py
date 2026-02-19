@@ -68,7 +68,7 @@ class Information_panel(Frame):
 
 
             #CTXT
-            Lab_version=Label(self, text="AnimalTA. Dev version", font=("Arial", "14", "bold"), justify=LEFT, **Color_settings.My_colors.Label_Base)
+            Lab_version=Label(self, text="AnimalTA. Pre release version 4.0.0", font=("Arial", "14", "bold"), justify=LEFT, **Color_settings.My_colors.Label_Base)
             Lab_version.grid(row=Crow, column=0,columnspan=2, sticky="nsw")
             Crow += 1
 
