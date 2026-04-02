@@ -151,7 +151,7 @@ class Information_panel(Frame):
             self.spinning_cursor()
             Th_download.join()
 
-            if self.update_successful:
+            if self.update_successful and sys.platform == "win32":
                 Update_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.exe"))
                 Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
 
@@ -180,15 +180,16 @@ class Information_panel(Frame):
         self.spinning_cursor()
         Th_download.join()
 
-        Update_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.exe"))
-        Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+        if sys.platform == "win32":
+            Update_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.exe"))
+            Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
 
-        # Get the system's temporary directory
-        temp_dir = tempfile.gettempdir()
-        temp_destination = os.path.join(temp_dir, "Settings_AnimalTA_10082024")
+            # Get the system's temporary directory
+            temp_dir = tempfile.gettempdir()
+            temp_destination = os.path.join(temp_dir, "Settings_AnimalTA_10082024")
 
-        # Copy the file
-        shutil.copy(Param_file, temp_destination)
+            # Copy the file
+            shutil.copy(Param_file, temp_destination)
 
-        subprocess.Popen([Update_file, '/SILENT'], shell=True)
-        sys.exit()
+            subprocess.Popen([Update_file, '/SILENT'], shell=True)
+            sys.exit()
