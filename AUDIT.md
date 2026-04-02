@@ -54,6 +54,40 @@ else:
 
 ---
 
+### BLOCKER — `simsun.ttc` Windows font
+
+**Files:**
+- `AnimalTA/A_General_tools/Class_stabilise.py:117`
+- `AnimalTA/A_General_tools/Class_Lecteur.py:614, 624`
+
+```python
+fontpath = os.path.join(".", "simsun.ttc")
+font = ImageFont.truetype(fontpath, 20)
+```
+SimSun (`simsun.ttc`) is a Chinese font bundled with Windows. The file is **not present in the repo** and no try/except wraps these calls — on Linux they will raise `FileNotFoundError` and crash the stabilisation preview and video reader overlay.
+
+**Fix:** Replace with a font available on Linux. `DejaVuSans.ttf` ships with most Linux distros and is also used by matplotlib. Fall back to PIL's built-in default if unavailable:
+```python
+import shutil
+fontpath = shutil.which("DejaVuSans.ttf") or "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+try:
+    font = ImageFont.truetype(fontpath, size)
+except (OSError, IOError):
+    font = ImageFont.load_default()
+```
+
+---
+
+### MINOR — `import ntpath` (Windows path module)
+
+**Files:** `AnimalTA/Class_Video.py:2`, `AnimalTA/A_General_tools/Interface_Change_Folder.py:5`, `AnimalTA/B_Project_organisation/Interface_pretracking.py:2`, `AnimalTA/A_General_tools/Interface_Vids_for_convert.py:7`
+
+Used only as `ntpath.basename(path)` to extract filenames. `ntpath` is part of Python's standard library on all platforms and handles both Windows (`\`) and Unix (`/`) separators. This is actually a **correct cross-platform approach** for reading stored project files that may contain Windows-style paths.
+
+**Severity:** Harmless — no change needed.
+
+---
+
 ### MINOR — `subprocess.STARTUPINFO` / `CREATE_NO_WINDOW`
 
 **File:** `AnimalTA/A_General_tools/Class_converter.py:96–100`
