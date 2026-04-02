@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# Load Apptainer module if needed
+# module load Apptainer  # CHANGEME: uncomment if module system is used
+
+# Set display for VNC session
+export DISPLAY=:<%= display %>
+
+# Run AnimalTA in the container
+# CHANGEME: update path to .sif file on your cluster
+apptainer exec \
+    --bind /home/$USER:/home/$USER \
+    --bind /tmp:/tmp \
+    /path/to/animalta.sif \
+    python3 /opt/animalta/cli.py
