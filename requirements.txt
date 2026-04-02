@@ -1,0 +1,22 @@
+# AnimalTA dependencies
+# Use opencv-python-headless (not opencv-python) to avoid Qt/GTK conflicts with tkinter
+opencv-python-headless>=4.8.0
+Pillow>=10.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+scikit-learn>=1.3.0
+scikit-image>=0.21.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+decord>=0.6.0
+h5py>=3.9.0
+pymediainfo>=6.0.0
+pandastable>=0.13.0
+psutil>=5.9.0
+pyautogui>=0.9.54
+pymsgbox>=1.0.9
+tksheet>=7.0.0
+
+# Testing (not needed at runtime)
+pytest>=7.0.0
+hypothesis>=6.0.0
