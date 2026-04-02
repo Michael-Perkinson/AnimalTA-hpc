@@ -2,7 +2,7 @@ from tkinter import *
 import os
 import numpy as np
 import cv2
-from AnimalTA.A_General_tools import UserMessages
+from AnimalTA.A_General_tools import UserMessages, compat
 from PIL import ImageFont, ImageDraw, Image
 
 
@@ -114,13 +114,15 @@ def find_best_position(Vid, Prem_Im, frame, show, scale=1, prev_pts=None):
         frame_stabilized=frame
 
     if show:#If we want to see the result as an image composition
-        fontpath = os.path.join(".","simsun.ttc")
         decal=10
         if scale<10:
-            font = ImageFont.truetype(fontpath, max(1, int(scale * 30)))
+            _size = max(1, int(scale * 30))
+            _fp, _ = compat.get_font_path(_size)
+            font = ImageFont.truetype(_fp, _size) if _fp else ImageFont.load_default()
             stroke_width=max(1, int(scale * 2))
         else:
-            font = ImageFont.truetype(fontpath, 1)
+            _fp, _ = compat.get_font_path(1)
+            font = ImageFont.truetype(_fp, 1) if _fp else ImageFont.load_default()
             stroke_width = 1
         first_im = np.copy(Prem_Im)
 

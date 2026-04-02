@@ -1,6 +1,5 @@
 import numpy as np
 import ntpath
-from django.db.models.functions import Repeat
 from AnimalTA.A_General_tools import UserMessages, Class_stabilise, Function_draw_arenas as Dr, Message_simple_question as MsgBox, Diverse_functions
 import os
 import cv2

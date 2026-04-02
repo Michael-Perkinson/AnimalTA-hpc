@@ -1,7 +1,7 @@
 from tkinter import *
 import numpy as np
 import cv2
-from AnimalTA.A_General_tools import Class_Scroll_crop, Function_draw_arenas as Dr, Video_loader as VL, UserMessages, Color_settings, Message_simple_question as MsgBox
+from AnimalTA.A_General_tools import Class_Scroll_crop, Function_draw_arenas as Dr, Video_loader as VL, UserMessages, Color_settings, Message_simple_question as MsgBox, compat
 import time
 import PIL.Image, PIL.ImageTk
 import psutil
@@ -611,8 +611,8 @@ class Lecteur(Frame):
                 self.parent.draw_over(img2, -self.zoom_sq[0], -self.zoom_sq[1], self.ratio, Trans=Trans)
 
         if locked:
-            fontpath = os.path.join(".", "simsun.ttc")
-            font = ImageFont.truetype(fontpath, 20)
+            _fp, _ = compat.get_font_path(20)
+            font = ImageFont.truetype(_fp, 20) if _fp else ImageFont.load_default()
             stroke_width = 2
             first_im = Image.fromarray(img2)
             draw = ImageDraw.Draw(first_im)
@@ -621,8 +621,8 @@ class Lecteur(Frame):
             img2 = np.array(first_im)
 
         if self.no_zoom:
-            fontpath = os.path.join(".", "simsun.ttc")
-            font = ImageFont.truetype(fontpath, 20)
+            _fp, _ = compat.get_font_path(20)
+            font = ImageFont.truetype(_fp, 20) if _fp else ImageFont.load_default()
             stroke_width = 2
             first_im = Image.fromarray(img2)
             draw = ImageDraw.Draw(first_im)

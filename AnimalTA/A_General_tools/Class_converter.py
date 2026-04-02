@@ -1,4 +1,5 @@
 import os
+import sys
 import cv2
 from AnimalTA.A_General_tools import UserMessages
 from pymediainfo import MediaInfo
@@ -10,7 +11,10 @@ def convert_to_avi(file, new_file, frame_rate=None, quality_vid=10, progress=Non
     """Function to convert videos to .avi format. The new .avi files will be stored in the project folder with the same name as the previous one."""
     try:
         File_folder = UserMessages.resource_path(os.path.join("AnimalTA", "Files"))
-        ffmpeg_path = os.path.join(File_folder, "ffmpeg", "ffmpeg.exe")
+        if sys.platform == "win32":
+            ffmpeg_path = os.path.join(File_folder, "ffmpeg", "ffmpeg.exe")
+        else:
+            ffmpeg_path = "ffmpeg"  # use system ffmpeg on Linux/macOS
 
         cap = cv2.VideoCapture(file)
         frame_width = int(cap.get(3))
@@ -93,11 +97,13 @@ def convert_to_avi(file, new_file, frame_rate=None, quality_vid=10, progress=Non
 
 
             startupinfo = None
-            if hasattr(subprocess, "STARTUPINFO"):
+            creationflags = 0
+            if sys.platform == "win32":
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                creationflags = subprocess.CREATE_NO_WINDOW
 
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, startupinfo=startupinfo, creationflags=subprocess.CREATE_NO_WINDOW, text=True)
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, startupinfo=startupinfo, creationflags=creationflags, text=True)
             # Read progress in real time
 
             while True:

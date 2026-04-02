@@ -22,8 +22,9 @@ import os
 from functools import partial
 import decord
 from copy import deepcopy
-from ctypes import windll
-from django.utils.crypto import get_random_string
+import secrets
+if sys.platform == "win32":
+    from ctypes import windll
 import copy
 import cv2
 import imghdr
@@ -325,6 +326,8 @@ class Interface(Frame):
             self.open_file2(new_file=file_path)
 
     def set_appwindow(self, root):
+        if sys.platform != "win32":
+            return
         GWL_EXSTYLE = -20
         WS_EX_APPWINDOW = 0x00040000
         WS_EX_TOOLWINDOW = 0x00000080
@@ -750,7 +753,7 @@ class Interface(Frame):
                 try:
                     self.ID_project=data_to_load["ID_project"]
                 except:
-                    self.ID_project = get_random_string(length=10)
+                    self.ID_project = secrets.token_urlsafe(8)
 
                 try:
                     self.import_values=data_to_load["Importation_values"]
@@ -1155,7 +1158,7 @@ class Interface(Frame):
                 self.HW.default_message = self.Messages["General0"]
                 self.HW.remove_tmp_message()
                 self.liste_of_videos = []
-                self.ID_project = get_random_string(length=10)
+                self.ID_project = secrets.token_urlsafe(8)
 
                 try:
                     self.list_projects

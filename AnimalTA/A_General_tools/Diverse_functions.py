@@ -26,6 +26,11 @@ def prepare_details(Vid):
 
 
 def download_new_version(last_version, parent=None):
+    if sys.platform != "win32":
+        if parent is not None:
+            parent.download_done = True
+            parent.update_successful = False
+        return
     try:
         Update_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.crdownload"))
         urllib.request.urlretrieve("http://vchiara.eu/AnimalTA_installer_"+last_version+".exe", Update_file)

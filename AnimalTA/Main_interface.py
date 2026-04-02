@@ -12,7 +12,8 @@ import urllib.request
 from tkinter import ttk
 import urllib.request
 import pickle
-from ctypes import windll
+if sys.platform == "win32":
+    from ctypes import windll
 import threading
 import tempfile
 import shutil
@@ -111,68 +112,71 @@ class Mainframe(Tk):
 
         Diverse_functions.low_priority(Params["Low_priority"])
 
-        try:
-            # We look for new updates:
-            try:
-                f = open(UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Last_downloaded")), "r", encoding="utf-8")
-                Last_downloaded=f.read()
-                f.close()
-            except:
-                Last_downloaded=current_version
-                f = open(UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Last_downloaded")), "w", encoding="utf-8")
-                f.write(current_version)
-                f.close()
-
-            last_version = urllib.request.urlopen("http://vchiara.eu/Last_version.txt").read().decode('utf-8')
-            if last_version!= current_version:
-                new_update = last_version
-                installer_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.exe"))
-                if Params["Auto_update"]:
-                    if Last_downloaded!=last_version or not os.path.exists(installer_file):
-                        Th_dwonload = threading.Thread(target=Diverse_functions.download_new_version, args=(last_version,))
-                        Th_dwonload.start()
-
-                        new_update = None
-                    else:
-                        update_res=self.do_update()
-                        new_update = None
-                        installer_file = UserMessages.resource_path(
-                            os.path.join("AnimalTA", "Files", "last_update.exe"))
-                        installer_file_tmp = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.crdownload"))
-
-                        try:
-                            os.remove(installer_file_tmp)
-                        except Exception as e:
-                            pass
-
-
-                        try:
-                            os.remove(installer_file)
-                        except Exception as e:
-                            pass
-
-
-            else:
-                new_update = None
-                installer_file = UserMessages.resource_path(
-                    os.path.join("AnimalTA", "Files", "last_update.exe"))
-                installer_file_tmp = UserMessages.resource_path(
-                    os.path.join("AnimalTA", "Files", "last_update.crdownload"))
-
-                try:
-                    os.remove(installer_file_tmp)
-                except Exception as e:
-                    pass
-
-                try:
-                    os.remove(installer_file)
-                except Exception as e:
-                    pass
-
-
-        except Exception as e:
-            print(e)
+        if os.environ.get("ANIMALTA_DISABLE_UPDATE") == "1" or sys.platform != "win32":
             new_update = None
+        else:
+            try:
+                # We look for new updates:
+                try:
+                    f = open(UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Last_downloaded")), "r", encoding="utf-8")
+                    Last_downloaded=f.read()
+                    f.close()
+                except:
+                    Last_downloaded=current_version
+                    f = open(UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Last_downloaded")), "w", encoding="utf-8")
+                    f.write(current_version)
+                    f.close()
+
+                last_version = urllib.request.urlopen("http://vchiara.eu/Last_version.txt").read().decode('utf-8')
+                if last_version!= current_version:
+                    new_update = last_version
+                    installer_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.exe"))
+                    if Params["Auto_update"]:
+                        if Last_downloaded!=last_version or not os.path.exists(installer_file):
+                            Th_dwonload = threading.Thread(target=Diverse_functions.download_new_version, args=(last_version,))
+                            Th_dwonload.start()
+
+                            new_update = None
+                        else:
+                            update_res=self.do_update()
+                            new_update = None
+                            installer_file = UserMessages.resource_path(
+                                os.path.join("AnimalTA", "Files", "last_update.exe"))
+                            installer_file_tmp = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.crdownload"))
+
+                            try:
+                                os.remove(installer_file_tmp)
+                            except Exception as e:
+                                pass
+
+
+                            try:
+                                os.remove(installer_file)
+                            except Exception as e:
+                                pass
+
+
+                else:
+                    new_update = None
+                    installer_file = UserMessages.resource_path(
+                        os.path.join("AnimalTA", "Files", "last_update.exe"))
+                    installer_file_tmp = UserMessages.resource_path(
+                        os.path.join("AnimalTA", "Files", "last_update.crdownload"))
+
+                    try:
+                        os.remove(installer_file_tmp)
+                    except Exception as e:
+                        pass
+
+                    try:
+                        os.remove(installer_file)
+                    except Exception as e:
+                        pass
+
+
+            except Exception as e:
+                print(e)
+                new_update = None
 
 
         self.open_AnimalTA(current_version, new_update, file_path)
@@ -203,13 +207,15 @@ class Mainframe(Tk):
         self.frame.grid(sticky="nsew")
 
 
-GWL_EXSTYLE=-20
-WS_EX_APPWINDOW=0x00040000
-WS_EX_TOOLWINDOW=0x00000080
-
+if sys.platform == "win32":
+    GWL_EXSTYLE=-20
+    WS_EX_APPWINDOW=0x00040000
+    WS_EX_TOOLWINDOW=0x00000080
 
 
 def set_appwindow(root):
+    if sys.platform != "win32":
+        return
     hwnd = windll.user32.GetParent(root.winfo_id())
     style = windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
     style = style & ~WS_EX_TOOLWINDOW
@@ -295,7 +301,8 @@ def start_mainframe():
     root.geometry("1250x720")
     root.geometry("+100+100")
     root.after(10, lambda: set_appwindow(root))
-    root.iconbitmap(UserMessages.resource_path(os.path.join("AnimalTA","Files","Logo.ico")))
+    if sys.platform == "win32":
+        root.iconbitmap(UserMessages.resource_path(os.path.join("AnimalTA","Files","Logo.ico")))
 
     Grid.rowconfigure(root,0,weight=1)
     Grid.columnconfigure(root,0,weight=1)
