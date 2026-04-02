@@ -1,0 +1,25 @@
+---
+cluster: "aotearoa"  # CHANGEME: match your cluster name
+attributes:
+  hours:
+    widget: "number_field"
+    label: "Wall time (hours)"
+    value: 2
+    min: 1
+    max: 8
+  num_cpus:
+    widget: "number_field"
+    label: "CPUs"
+    value: 2
+    min: 1
+    max: 8
+  memory:
+    widget: "number_field"
+    label: "Memory (GB)"
+    value: 4
+    min: 2
+    max: 16
+form:
+  - hours
+  - num_cpus
+  - memory
