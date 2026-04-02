@@ -1,0 +1,62 @@
+Bootstrap: docker
+From: python:3.11-slim-bookworm
+
+%labels
+    Author Michael Perkinson
+    Description AnimalTA video tracking for Open OnDemand (NeSI)
+    Upstream https://github.com/VioletteChiara/AnimalTA
+    Version 3.2.2-linux
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+        # tkinter and X11
+        python3-tk \
+        libgl1-mesa-glx \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender1 \
+        libfontconfig1 \
+        # ffmpeg (replaces bundled ffmpeg.exe)
+        ffmpeg \
+        # fonts (replaces Windows simsun.ttc)
+        fonts-dejavu-core \
+        # pymediainfo native library
+        libmediainfo0v5 \
+        # pyautogui X11 automation (used for mouse position in dialogs)
+        python3-xlib \
+        scrot \
+        && rm -rf /var/lib/apt/lists/*
+
+    pip install --no-cache-dir \
+        opencv-python-headless>=4.8.0 \
+        Pillow>=10.0.0 \
+        numpy>=1.24.0 \
+        scipy>=1.10.0 \
+        scikit-learn>=1.3.0 \
+        scikit-image>=0.21.0 \
+        pandas>=2.0.0 \
+        matplotlib>=3.7.0 \
+        decord>=0.6.0 \
+        h5py>=3.9.0 \
+        pymediainfo>=6.0.0 \
+        pandastable>=0.13.0 \
+        psutil>=5.9.0 \
+        pyautogui>=0.9.54 \
+        pymsgbox>=1.0.9 \
+        tksheet>=7.0.0
+
+    mkdir -p /opt/animalta
+
+%files
+    . /opt/animalta
+
+%environment
+    export ANIMALTA_DISABLE_UPDATE=1
+    export MPLBACKEND=TkAgg
+    # Ensure tkinter finds the X display provided by the VNC session
+    # DISPLAY is set by the OOD script at runtime
+
+%runscript
+    cd /opt/animalta
+    exec python3 cli.py "$@"
