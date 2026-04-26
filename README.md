@@ -1,7 +1,9 @@
-# AnimalTA (3.2.2)
+# AnimalTA — Linux/HPC Fork
+
+> **Fork of [VioletteChiara/AnimalTA](https://github.com/VioletteChiara/AnimalTA)** — adds native Linux support, an Apptainer container for HPC clusters, and Open OnDemand deployment. The original Windows installer and all core tracking functionality come from Violette Chiara's work. See [ood/DEPLOYMENT.md](ood/DEPLOYMENT.md) to deploy on an HPC cluster via Open OnDemand.
 
 This is the latest version of AnimalTA, an easy-to-use video tracking program.
-AnimalTA is associated with an installer under the Windows operating system (see releases section), but can be used with Linux or Mac OS via virtualization programs.
+AnimalTA is associated with an installer under the Windows operating system (see the original repo's releases), and this fork runs natively on Linux via Apptainer.
 More information can be found in the user manual.
 
 
