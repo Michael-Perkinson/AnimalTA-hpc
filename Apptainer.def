@@ -52,4 +52,4 @@ From: python:3.11-slim-bookworm
 
 %runscript
     cd /opt/animalta
-    exec python3 cli.py "$@"
+    exec python3 main.py "$@"

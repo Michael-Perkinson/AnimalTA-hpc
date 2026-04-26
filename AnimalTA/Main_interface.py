@@ -28,7 +28,7 @@ if getattr(sys, 'frozen', False):
 
 
 
-# pyinstaller cli.py --noconsole
+# pyinstaller main.py --noconsole
 class Mainframe(Tk):
     #Launch the rest of animalTA
     def __init__(self):
