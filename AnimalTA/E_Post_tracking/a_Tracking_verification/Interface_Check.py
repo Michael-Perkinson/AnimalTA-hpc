@@ -10,6 +10,7 @@ from AnimalTA.B_Project_organisation import Interface_pretracking
 import csv
 import math
 from tkinter import ttk
+from AnimalTA import compat
 import copy
 import shutil
 import os
@@ -52,7 +53,7 @@ class Lecteur(Frame):
         self.opening_Track= copy.deepcopy(self.Vid.Track[1][6])
 
         #Whether the individuals absent on the current frame should be hidden or not
-        Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+        Param_file = UserMessages.settings_file_path()
         with open(Param_file, 'rb') as fp:
             Params = pickle.load(fp)
             self.hide_missing = Params["Check_hide_missing"]
@@ -404,8 +405,12 @@ class Lecteur(Frame):
             else:
                 file_name = self.Vid.User_Name
 
-            if os.path.isfile(os.path.join(self.Vid.Folder,"corrected_coordinates",file_name + "_Corrected.csv")):
-                os.remove(os.path.join(self.Vid.Folder,"corrected_coordinates",file_name + "_Corrected.csv"))
+            corrected_file = os.path.join(
+                UserMessages.corrected_coordinates_dir_path(self.Vid.Folder),
+                file_name + "_Corrected.csv",
+            )
+            if os.path.isfile(corrected_file):
+                os.remove(corrected_file)
 
             self.Vid.Identities=copy.deepcopy(self.Vid.Identities_saved)
             self.Vid.Sequences=copy.deepcopy(self.Vid.Sequences_saved)
@@ -548,7 +553,10 @@ class Lecteur(Frame):
         else:
             file_name = self.Vid.User_Name
 
-        path = os.path.join(self.Vid.Folder, "TMP_portion", file_name + "_TMP_portion_Coordinates.csv")
+        path = os.path.join(
+            UserMessages.tmp_portion_dir_path(self.Vid.Folder),
+            file_name + "_TMP_portion_Coordinates.csv",
+        )
 
 
         with open(path, encoding="utf-8") as csv_file:
@@ -597,13 +605,13 @@ class Lecteur(Frame):
             self.save_file()
         except Exception as e:
             Interface_pretracking.CustomDialog(self.main_frame.master,
-                         text="An exception occurred while saving the file:" + str(type(e).__name__) + " – " + str(e),
+                         text="An exception occurred while saving the file:" + str(type(e).__name__) + " â€“ " + str(e),
                          title="Debugging")
         try:
             self.main_frame.save()
         except Exception as e:
             Interface_pretracking.CustomDialog(self.main_frame.master,
-                         text="An exception occurred while saving the main_frame:" + str(type(e).__name__) + " – " + str(e),
+                         text="An exception occurred while saving the main_frame:" + str(type(e).__name__) + " â€“ " + str(e),
                          title="Debugging")
 
         if follow:
@@ -616,7 +624,7 @@ class Lecteur(Frame):
             self.End_of_window()
         except Exception as e:
             Interface_pretracking.CustomDialog(self.main_frame.master,
-                         text="An exception occurred while closing the window:" + str(type(e).__name__) + " – " + str(e),
+                         text="An exception occurred while closing the window:" + str(type(e).__name__) + " â€“ " + str(e),
                          title="Debugging")
 
     def End_of_window(self):
@@ -625,7 +633,7 @@ class Lecteur(Frame):
             self.Vid_Lecteur.proper_close()
         except Exception as e:
             Interface_pretracking.CustomDialog(self.main_frame.master,
-                         text="An exception occurred while closing the video reader:" + str(type(e).__name__) + " – " + str(e),
+                         text="An exception occurred while closing the video reader:" + str(type(e).__name__) + " â€“ " + str(e),
                          title="Debugging")
 
         self.grab_release()
@@ -666,7 +674,7 @@ class Lecteur(Frame):
         #Save the new cooridnates in a specific folder (corrected_coordinates)
         CoosLS.save(self.Vid, self.Coos, location=self)
         #If there was a temporary file used, we delete it
-        folder = os.path.join(self.main_frame.folder, "TMP_portion")
+        folder = UserMessages.tmp_portion_dir_path(self.main_frame.folder)
         if os.path.isdir(folder):
             shutil.rmtree(folder)
         self.Vid.corrected=True
@@ -987,6 +995,8 @@ class Lecteur(Frame):
         Grid.columnconfigure(self.container_table, 0, weight=1)
 
     def resize_fr(self, event):
+        if getattr(self, "Coos", None) is None or not hasattr(self, "Scrollbar"):
+            return
         self.afficher_table(redo=True)
 
     def create_options(self):
@@ -1050,7 +1060,7 @@ class Lecteur(Frame):
         self.Can_Col.bind("<Leave>", lambda a: self.HW.remove_tmp_message())
 
         #Button to get the coordinates table in another window
-        self.separate_coos=Button(table, text="⧉", command=self.Coos_new_windows, **Color_settings.My_colors.Button_Base)
+        self.separate_coos=Button(table, text="â§‰", command=self.Coos_new_windows, **Color_settings.My_colors.Button_Base)
         self.separate_coos.grid(row=4,column=2, sticky="snwe")
 
         #vertical scroll bar
@@ -1206,6 +1216,9 @@ class Lecteur(Frame):
     def afficher_table(self, actual_pos=None, redo=False, windowing=False, *args):
         #Display the interactive table with all the coordinates of the targets.
         #Headings
+        if getattr(self, "Coos", None) is None or getattr(self, "who_is_here", None) is None or not hasattr(self, "Scrollbar"):
+            return
+
         try:
             self.tree
         except Exception as e:
@@ -1314,7 +1327,7 @@ class Lecteur(Frame):
                 Pos=[]
                 for ind in inds_to_show:
                     if len(self.copied_cells)>0 and ind == self.copied_cells[0] and pos_in_coos in self.copied_cells[1]:
-                        copy_info=" ¦ "
+                        copy_info=" Â¦ "
                     else:
                         copy_info=""
 
@@ -1669,6 +1682,8 @@ class Lecteur(Frame):
             self.to_sub = 0
 
         #We import the coordinates
+        self.Coos = None
+        self.who_is_here = None
         self.Coos, self.who_is_here = CoosLS.load_coos(self.Vid, location=self)
         self.redo_who_is_here()
         self.selected_ind=0
@@ -2044,7 +2059,7 @@ class Canvas_colors(Canvas):
         self.ind=ind
         self.boss=boss
         self.parent=parent
-        self.parent.attributes('-toolwindow', True)
+        compat.set_toolwindow(self.parent)
 
         #Paint the canvas with color chart
         H = np.array(list(range(180)), dtype="uint8")
@@ -2090,5 +2105,10 @@ class Canvas_colors(Canvas):
 
     def stay_on_top(self):
         #We want this window to always be on the top
-        self.parent.lift()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                self.parent.lift()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass
+

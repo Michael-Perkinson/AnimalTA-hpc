@@ -3,7 +3,7 @@ import time
 import cv2
 import decord
 import numpy as np
-from AnimalTA.A_General_tools import Class_stabilise, UserMessages, Video_loader as VL
+from AnimalTA.A_General_tools import Class_stabilise, UserMessages, Video_loader as VL, image_utils
 from AnimalTA.D_Tracking_process import security_settings_track
 import os
 import pickle
@@ -112,9 +112,7 @@ def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_ima
                 img = cv2.subtract(img, TMP_back)
 
             if Vid.Track[1][10][2] == 1:
-                img = img.astype(np.uint16)
-                img = (img * 255) // TMP_back
-                img = img.astype(np.uint8)
+                img = image_utils.apply_relative_background(img, TMP_back)
 
             if Vid.Track[1][10][0] == 1:
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)

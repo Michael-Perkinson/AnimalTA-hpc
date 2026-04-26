@@ -129,8 +129,12 @@ class Information_panel(Frame):
 
     def stay_on_top(self):
         # We want this window to be always on top of the others
-        self.parent.lift()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                self.parent.lift()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass
 
     def send_link(self, event):
         webbrowser.open_new_tab("http://vchiara.eu/index.php/animalta")
@@ -153,7 +157,7 @@ class Information_panel(Frame):
 
             if self.update_successful and sys.platform == "win32":
                 Update_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.exe"))
-                Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+                Param_file = UserMessages.settings_file_path()
 
                 # Get the system's temporary directory
                 temp_dir = tempfile.gettempdir()
@@ -182,7 +186,7 @@ class Information_panel(Frame):
 
         if sys.platform == "win32":
             Update_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.exe"))
-            Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+            Param_file = UserMessages.settings_file_path()
 
             # Get the system's temporary directory
             temp_dir = tempfile.gettempdir()

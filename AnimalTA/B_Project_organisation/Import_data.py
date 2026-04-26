@@ -444,8 +444,12 @@ class Int_import(Frame):
 
     def stay_on_top(self):
         #This function ensure that this window will always be in front of the others
-        self.parent.lift()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                self.parent.lift()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass
 
     def End_of_win(self, bind=True):
         return_to_boss(self.boss, bind)
@@ -799,10 +803,10 @@ def save_vid(type, new_tab,Vid, boss, new_IDs=None, names=None, load_fr=None):
     else:
         file_name = Vid.User_Name
 
-    if not os.path.isdir(os.path.join(boss.folder, "coordinates")):
-        os.makedirs(os.path.join(boss.folder, "coordinates"))
-
-    To_save = os.path.join(boss.folder, "Coordinates", file_name + "_Coordinates.csv")
+    To_save = os.path.join(
+        UserMessages.coordinates_dir_path(boss.folder, create=True),
+        file_name + "_Coordinates.csv",
+    )
     new_tab.to_csv(To_save, sep=";", index=False)
 
     Vid.Tracked = True

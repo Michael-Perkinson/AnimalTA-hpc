@@ -1,4 +1,5 @@
 from tkinter import *
+from AnimalTA import compat
 from AnimalTA.A_General_tools import UserMessages, Color_settings
 
 
@@ -11,7 +12,7 @@ class Modify(Frame):
         self.boss=boss
         self.grid()
         self.grab_set()
-        self.parent.attributes('-toolwindow', True)
+        compat.set_toolwindow(self.parent)
 
         #If the video has less than 100 frames, we limit the windows lenght parameter to the length of the video, if not the maximum is 100.
         self.max_windows=min(len(self.boss.Coos_brutes[0]),100)

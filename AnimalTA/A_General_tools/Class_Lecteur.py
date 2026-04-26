@@ -1,7 +1,8 @@
 from tkinter import *
 import numpy as np
 import cv2
-from AnimalTA.A_General_tools import Class_Scroll_crop, Function_draw_arenas as Dr, Video_loader as VL, UserMessages, Color_settings, Message_simple_question as MsgBox, compat
+from AnimalTA.A_General_tools import Class_Scroll_crop, Function_draw_arenas as Dr, Video_loader as VL, UserMessages, Color_settings, Message_simple_question as MsgBox
+from AnimalTA import compat
 import time
 import PIL.Image, PIL.ImageTk
 import psutil
@@ -28,6 +29,8 @@ class Lecteur(Frame):
         self.first=True #Just a flag to initiate the Video Reader
         self.config(borderwidth=0, highlightthickness=0,**Color_settings.My_colors.Frame_Base)
         self.show_whole_frame=show_whole_frame
+        self.closed = False
+        self.memory_check_after = None
 
         self.point_of_interest=[-1000,-1000]
         self.moving_pt_interest=False
@@ -131,13 +134,41 @@ class Lecteur(Frame):
 
 
 
+    def _widget_exists(self, widget):
+        if widget is None:
+            return False
+        try:
+            return bool(widget.winfo_exists())
+        except (AttributeError, TclError):
+            return False
+
+    def _is_open(self, require_canvas=False, require_capture=False):
+        if getattr(self, "closed", False):
+            return False
+        if self._widget_exists(self) is False and require_canvas:
+            return False
+        if require_canvas and not self._widget_exists(getattr(self, "canvas_video", None)):
+            return False
+        if require_capture and not hasattr(self, "capture"):
+            return False
+        return True
+
     def update_ratio(self, *args):
         '''Calculate the ratio between the original size of the video and the displayed image'''
-        self.ratio=max((self.zoom_sq[2]-self.zoom_sq[0])/self.canvas_video.winfo_width(),(self.zoom_sq[3]-self.zoom_sq[1])/self.canvas_video.winfo_height())
+        if not hasattr(self, "zoom_sq") or not self._is_open(require_canvas=True):
+            return getattr(self, "ratio", 1)
+
+        width = max(self.canvas_video.winfo_width(), 1)
+        height = max(self.canvas_video.winfo_height(), 1)
+        self.ratio=max((self.zoom_sq[2]-self.zoom_sq[0])/width,(self.zoom_sq[3]-self.zoom_sq[1])/height)
+        return self.ratio
 
     def check_memory_overload(self):
         '''Security to avoid problems of memory overload due to the decord library (see https://github.com/dmlc/decord/issues/27)'''
-        self.parent.after(1000, self.check_memory_overload)
+        if self.closed or not self._widget_exists(self.parent):
+            return
+
+        self.memory_check_after = self.parent.after(1000, self.check_memory_overload)
         if psutil.virtual_memory()._asdict()["percent"]>99.8:
             self.parent.End_of_window()
 
@@ -283,6 +314,11 @@ class Lecteur(Frame):
         return_img=IF true, the function return the image without triggering image modification of the parent
         This fonction is calling another fonction that will apply the mandatory changes to the image (all kind of modifications: draw the trajectories, grayscaled, add the mask, etc).
         This second fonction is a method of the object containing this Video Reader.'''
+        if self.closed:
+            return None
+        if not first and not self._is_open(require_capture=True):
+            return None
+
         Which_part=0
         if len(self.Vid.Fusion)>1:#If videos were concatenated, we determine which segment of the video we are interested in
             Which_part = [index for index, Fu_inf in enumerate(self.Vid.Fusion) if Fu_inf[0] <= (frame * self.one_every)][-1]#Determine in which segment of the video is the frame to be display
@@ -319,7 +355,7 @@ class Lecteur(Frame):
 
             TMP_image_to_show = self.capture[round(frame * self.one_every) - self.Vid.Fusion[Which_part][0]]
 
-            if not return_img:
+            if not return_img and not self.closed:
                 self.parent.modif_image(TMP_image_to_show, actual_pos=actual_pos)
 
         self.current_part = Which_part
@@ -577,6 +613,9 @@ class Lecteur(Frame):
 
     def afficher_img(self, img, locked=False, return_img=False, Trans=False):
         '''Once the image is adapted by the video container, it is here resized and displayed'''
+        if self.closed or img is None:
+            return None
+
         self.update_ratio()
         self.last_img=img.copy()
         if self.first:
@@ -634,6 +673,8 @@ class Lecteur(Frame):
             return(img2)
 
         else:
+            if not self._is_open(require_canvas=True):
+                return None
             self.image_to_show3 = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(img2))
             self.can_import = self.canvas_video.create_image((self.canvas_video.winfo_width()-self.shape[1])/2, (self.canvas_video.winfo_height()-self.shape[0])/2, image=self.image_to_show3, anchor=NW)
             self.canvas_video.config(height=self.shape[1],width=self.shape[0])
@@ -643,8 +684,22 @@ class Lecteur(Frame):
 
     def proper_close(self):
         '''Destruction of the Video Reader'''
+        if self.closed:
+            return
+
+        self.closed = True
         self.unbindings()
-        del self.capture
         self.stop()
-        self.Scrollbar.close_N_destroy()
-        self.Scrollbar.destroy()
+        if self.memory_check_after is not None and self._widget_exists(self.parent):
+            try:
+                self.parent.after_cancel(self.memory_check_after)
+            except (ValueError, TclError):
+                pass
+            self.memory_check_after = None
+
+        if hasattr(self, "capture"):
+            del self.capture
+
+        if hasattr(self, "Scrollbar"):
+            self.Scrollbar.close_N_destroy()
+            self.Scrollbar.destroy()

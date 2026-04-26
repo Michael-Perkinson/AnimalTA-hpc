@@ -5,6 +5,7 @@ import cv2
 import PIL.Image, PIL.ImageTk
 from functools import partial
 from AnimalTA.A_General_tools import Function_draw_arenas as Dr, Interface_extend, UserMessages, Color_settings, Message_simple_question as MsgBox
+from AnimalTA import compat
 from AnimalTA.C_Pretracking import Interface_cropping, Interface_back, Interface_arenas, Interface_scaling, \
     Interface_stabilis, Interface_scaling_3D
 from AnimalTA.B_Project_organisation import Interface_supp_frame_rate
@@ -25,6 +26,9 @@ class Row_Can(Canvas):
             self.proj_pos=proj_pos #The position of the row in the table
             self.config(width=500, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
             self.list_colors = Color_settings.My_colors.list_colors
+            self.preview_window = None
+            self.preview_label = None
+            self.preview_image = None
 
             Grid.columnconfigure(self, 0, weight=1)
             Grid.rowconfigure(self, 0, weight=1)
@@ -39,7 +43,7 @@ class Row_Can(Canvas):
             Grid.columnconfigure(self.Inner_Frame, 1, weight=100)
 
 
-            Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+            Param_file = UserMessages.settings_file_path()
             with open(Param_file, 'rb') as fp:
                 self.Params = pickle.load(fp)
 
@@ -55,23 +59,34 @@ class Row_Can(Canvas):
             self.Messages = UserMessages.Mess[self.Language.get()]
 
             #Draw preparation:
-            self.oeuil = cv2.imread(UserMessages.resource_path(os.path.join("AnimalTA","Files","Oeuil.png")))
-            self.oeuil = cv2.cvtColor(self.oeuil, cv2.COLOR_BGR2RGB)
+            self.oeuil = compat.load_cv_rgb_resource(
+                os.path.join("AnimalTA", "Files", "Oeuil.png"),
+                fallback_shape=(24, 24, 3),
+            )
             self.Size_oe = self.oeuil.shape
-            self.oeuil = cv2.resize(self.oeuil, (int(self.Size_oe[1] / 4), int(self.Size_oe[0] / 4)))
+            eye_size = (max(1, int(self.Size_oe[1] / 4)), max(1, int(self.Size_oe[0] / 4)))
+            self.oeuil = cv2.resize(self.oeuil, eye_size)
 
-            self.oeuil2 = PIL.Image.open(UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Oeuil.png")))
-            self.oeuil2=self.oeuil2.resize((self.oeuil.shape[1],self.oeuil.shape[0]))
-            self.oeuil2 = PIL.ImageTk.PhotoImage(self.oeuil2)
+            self.oeuil2 = compat.load_tk_image_resource(
+                os.path.join("AnimalTA", "Files", "Oeuil.png"),
+                size=eye_size,
+                fallback_size=eye_size,
+            )
 
-            self.Supr_im = PIL.Image.open(UserMessages.resource_path(os.path.join("AnimalTA","Files","cross.png")))
-            self.Supr_im = PIL.ImageTk.PhotoImage(self.Supr_im)
+            self.Supr_im = compat.load_tk_image_resource(
+                os.path.join("AnimalTA", "Files", "cross.png"),
+                fallback_size=(22, 22),
+            )
 
-            self.Copy_im = PIL.Image.open(UserMessages.resource_path(os.path.join("AnimalTA","Files","Copy.png")))
-            self.Copy_im = PIL.ImageTk.PhotoImage(self.Copy_im)
+            self.Copy_im = compat.load_tk_image_resource(
+                os.path.join("AnimalTA", "Files", "Copy.png"),
+                fallback_size=(22, 22),
+            )
 
-            self.Concat_im = PIL.Image.open(UserMessages.resource_path(os.path.join("AnimalTA","Files","Concat.png")))
-            self.Concat_im = PIL.ImageTk.PhotoImage(self.Concat_im)
+            self.Concat_im = compat.load_tk_image_resource(
+                os.path.join("AnimalTA", "Files", "Concat.png"),
+                fallback_size=(22, 22),
+            )
 
             #Video name and representation:
             self.subcanvas_First = Canvas(self.Inner_Frame, bd=0, highlightthickness=0, relief='flat', width=275, **Color_settings.My_colors.Frame_Base)
@@ -477,26 +492,74 @@ class Row_Can(Canvas):
         '''Update the name of the video.'''
         self.File_name_var.set(self.Video.User_Name)
 
+    def _close_preview_window(self):
+        if self.preview_window is not None:
+            try:
+                if self.preview_window.winfo_exists():
+                    self.preview_window.destroy()
+            except TclError:
+                pass
+        self.preview_window = None
+        self.preview_label = None
+        self.preview_image = None
+
+    def _show_preview_window(self, image, message, source_format="bgr"):
+        if image is None or getattr(image, "size", 0) == 0:
+            return
+
+        self._close_preview_window()
+
+        display_image = image
+        if len(display_image.shape) == 2:
+            display_image = cv2.cvtColor(display_image, cv2.COLOR_GRAY2RGB)
+        elif source_format == "bgr":
+            display_image = cv2.cvtColor(display_image, cv2.COLOR_BGR2RGB)
+
+        target_width = max(1, int(self.width_show))
+        ratio = target_width / max(1, display_image.shape[1])
+        target_height = max(1, int(display_image.shape[0] * ratio))
+
+        pil_image = PIL.Image.fromarray(display_image).resize(
+            (target_width, target_height),
+            PIL.Image.LANCZOS,
+        )
+
+        self.preview_window = Toplevel(self.winfo_toplevel())
+        self.preview_window.wm_overrideredirect(1)
+        self.preview_window.config(bg="black")
+        try:
+            self.preview_window.attributes("-topmost", True)
+        except TclError:
+            pass
+
+        self.preview_image = PIL.ImageTk.PhotoImage(image=pil_image)
+        self.preview_label = Label(
+            self.preview_window,
+            image=self.preview_image,
+            bd=1,
+            relief="solid",
+            bg="black",
+        )
+        self.preview_label.grid()
+
+        pointer_x, pointer_y = compat.get_pointer_position(self)
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x_pos = pointer_x + 30
+        y_pos = max(20, pointer_y - min(50, target_height // 3))
+        if x_pos + target_width > screen_width - 20:
+            x_pos = max(20, pointer_x - target_width - 30)
+        if y_pos + target_height > screen_height - 20:
+            y_pos = max(20, screen_height - target_height - 20)
+
+        self.preview_window.wm_geometry("+%d+%d" % (x_pos, y_pos))
+        self.main_frame.HW.change_tmp_message(message)
+
     def show_first(self, *arg):
         '''Display the first image of the video in a temporary window.'''
         self.main_frame.HW.change_tmp_message(self.Messages["Row9"])
-        cv2.namedWindow(" ")  # Create a named window
-        ratio = self.width_show / self.Video.or_shape[1]
-        X_Cur=self.master.winfo_pointerx()
-        Y_Cur = self.master.winfo_pointery()
-
-        #To avoid the image to appear above the cursor
-        if X_Cur<50+self.width_show+50 and Y_Cur<50+self.Video.or_shape[0]*ratio:
-            X_Pos=X_Cur+50
-        else:
-            X_Pos=50
-        cv2.moveWindow(" ", X_Pos, 50)
-
-        Represent=self.Video.extract_repre_img()
-
-        self.main_frame.HW.change_tmp_message(self.Messages["Row22"])
-        cv2.imshow(" ",cv2.resize(Represent,(int(self.Video.or_shape[1]*ratio),int(self.Video.or_shape[0]*ratio))))
-        cv2.waitKey(1)
+        represent = self.Video.extract_repre_img()
+        self._show_preview_window(represent, self.Messages["Row22"], source_format="bgr")
 
 
 
@@ -504,8 +567,8 @@ class Row_Can(Canvas):
     def stop_show_first(self, *arg):
         '''Stop the display of the first image.'''
         self.main_frame.HW.remove_tmp_message()
-        cv2.destroyAllWindows()
-        self.main_frame.HW.remove_tmp_message
+        self._close_preview_window()
+        self.main_frame.HW.remove_tmp_message()
 
     def select_vid(self,event=None):
         '''When the user select a video.'''
@@ -681,7 +744,7 @@ class Row_Can(Canvas):
 
     def update(self):
         #Update the view according to the parameters:
-        Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+        Param_file = UserMessages.settings_file_path()
         with open(Param_file, 'rb') as fp:
             self.Params = pickle.load(fp)
         self.width_show = self.Params["Size_img_display"]  # How big are the displayed frames
@@ -844,19 +907,7 @@ class Row_Can(Canvas):
         # Display an image of the background on a temporary window
         if self.Video.Back[0]==1:
             self.main_frame.HW.change_tmp_message(self.Messages["Row14"])
-            cv2.namedWindow(" ")
-            ratio = self.width_show / self.Video.shape[1]
-            X_Cur = self.master.winfo_pointerx()
-            Y_Cur = self.master.winfo_pointery()
-            #To avoid that the window appears on the top of the cursor
-            if X_Cur < 50 + self.width_show + 50 and Y_Cur < 50 + self.Video.shape[0] * ratio:
-                X_Pos = X_Cur + 50
-            else:
-                X_Pos = 50
-            cv2.moveWindow(" ", X_Pos, 50)
-            self.main_frame.HW.change_tmp_message(self.Messages["Row23"])
-            cv2.imshow(" ",cv2.resize(cv2.cvtColor(self.Video.Back[1], cv2.COLOR_BGR2RGB),(int(self.Video.shape[1]*ratio),int(self.Video.shape[0]*ratio))))
-            cv2.waitKey(1)
+            self._show_preview_window(self.Video.Back[1], self.Messages["Row23"], source_format="bgr")
 
 
 
@@ -865,8 +916,8 @@ class Row_Can(Canvas):
         # Remove the displayed image of the background
         self.main_frame.HW.remove_tmp_message()
         if self.Video.Back[0]==1:
-            cv2.destroyAllWindows()
-        self.main_frame.HW.remove_tmp_message
+            self._close_preview_window()
+        self.main_frame.HW.remove_tmp_message()
 
     def extend_back(self):
         # Open a new window to extend the automatique background at several videos
@@ -950,22 +1001,8 @@ class Row_Can(Canvas):
         if self.Video.Mask[0]:
 
             self.main_frame.HW.change_tmp_message(self.Messages["Row15"])
-            cv2.namedWindow(" ")  # Create a named window
-            ratio = self.width_show / self.Video.shape[1]
-
-            #To avoid the window to appear on the top of the cursor
-            X_Cur = self.master.winfo_pointerx()
-            Y_Cur = self.master.winfo_pointery()
-            if X_Cur < 50 + self.width_show + 50 and Y_Cur < 50 + self.Video.shape[0] * ratio:
-                X_Pos = X_Cur + 50
-            else:
-                X_Pos = 50
-            cv2.moveWindow(" ", X_Pos, 50)
-
             mask_to_show=self.do_mask()
-            self.main_frame.HW.change_tmp_message(self.Messages["Row24"])
-            cv2.imshow(" ",cv2.resize(mask_to_show,(int(self.Video.shape[1]*ratio),int(self.Video.shape[0]*ratio))))
-            cv2.waitKey(1)
+            self._show_preview_window(mask_to_show, self.Messages["Row24"], source_format="bgr")
 
 
 
@@ -974,8 +1011,7 @@ class Row_Can(Canvas):
 
         if self.Video.Back[0] == 1:  # Create the image
             if len(self.Video.Back[1].shape) > 2:
-                mask_to_show = cv2.bitwise_and(cv2.cvtColor(self.Video.Back[1], cv2.COLOR_BGR2RGB),
-                                               cv2.cvtColor(self.Video.Back[1], cv2.COLOR_BGR2RGB), mask=mask)
+                mask_to_show = cv2.bitwise_and(self.Video.Back[1], self.Video.Back[1], mask=mask)
             else:
                 mask_to_show = cv2.bitwise_and(self.Video.Back[1], self.Video.Back[1], mask=mask)
 
@@ -1013,8 +1049,8 @@ class Row_Can(Canvas):
         # Remove the temporary image with arenas
         self.main_frame.HW.remove_tmp_message()
         if self.Video.Mask[0]:
-            cv2.destroyAllWindows()
-        self.main_frame.HW.remove_tmp_message
+            self._close_preview_window()
+        self.main_frame.HW.remove_tmp_message()
 
     def extend_mask(self):
         # Open a window to expend the position of the arenas to other videos

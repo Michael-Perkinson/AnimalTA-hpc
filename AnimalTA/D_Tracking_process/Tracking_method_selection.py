@@ -4,17 +4,41 @@ import multiprocessing
 import cv2
 import os
 from AnimalTA.A_General_tools import UserMessages
+from AnimalTA import compat
 import pickle
 
 
 #We determine whether it is better to use multiprocessing method or not:
+def _estimate_opencv_capture_time(video_path, one_every):
+    capture = cv2.VideoCapture(video_path)
+    if not capture.isOpened():
+        return None
+
+    start_time = time.time()
+    grabbed_index = -1
+    for frame_index in range(0, int(one_every * 5) + 1, int(one_every)):
+        while grabbed_index < frame_index:
+            if not capture.grab():
+                capture.release()
+                return None
+            grabbed_index += 1
+        ret, frame = capture.retrieve()
+        if not ret or frame is None:
+            capture.release()
+            return None
+
+    elapsed = time.time() - start_time
+    capture.release()
+    return elapsed
+
+
 def Choose_method(parent, Vid, folder, type, head_tail):
     parent.timer = 0
     parent.show_load()
 
 
 
-    Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+    Param_file = UserMessages.settings_file_path()
     with open(Param_file, 'rb') as fp:
         Params = pickle.load(fp)
         Low_Priority = Params["Low_priority"]
@@ -35,25 +59,13 @@ def Choose_method(parent, Vid, folder, type, head_tail):
         if Vid.type!="Video":
             method=1 #If we have an image sequence, then the best strategy is to do multithreading (in case of video not always beneficial as decord does not work with multiprocessing)
         else:
-            capture = cv2.VideoCapture(Vid.Fusion[0][1])
-            deb = time.time()
-
-            done = 0
-            for i in range(0,int(one_every*5)+1,int(one_every)):
-                while done<i:
-                    capture.grab()  # Set starting frame
-                    done+=1
-                ret,frame=capture.retrieve()
-            res_multi=time.time()-deb
-            capture.release()
+            res_multi = _estimate_opencv_capture_time(Vid.Fusion[0][1], one_every)
 
             parent.timer = 0.0002
             parent.show_load()
 
             #Using multiprocess is interesting only if the time win is enought to compensate slower oppening of the images + about 10 sec lost due to multithreading.
-            print("Normal: "+str((res_normal/5)*duration))
-            print("Multi: " + str((res_multi / 5) * duration+20))
-            if (res_normal/5)*duration > (res_multi/5)*duration+20:
+            if res_multi is not None and (res_normal/5)*duration > (res_multi/5)*duration+20:
                 method=1
             else:
                 method=0
@@ -66,6 +78,11 @@ def Choose_method(parent, Vid, folder, type, head_tail):
         succeed = Do_the_track.Do_tracking(parent=parent, Vid=Vid, type=type, folder=folder, test=False, head_tail=head_tail)
         return succeed
     else:
-        succeed = Do_the_track_multi.Do_tracking(parent=parent, Vid=Vid, type=type, folder=folder, head_tail=head_tail)
-        return succeed
+        try:
+            succeed = Do_the_track_multi.Do_tracking(parent=parent, Vid=Vid, type=type, folder=folder, head_tail=head_tail)
+            return succeed
+        except Exception as exc:
+            compat.startup_debug("multiprocess tracking failed; retrying single-process tracker: {}: {}".format(type(exc).__name__, exc))
+            succeed = Do_the_track.Do_tracking(parent=parent, Vid=Vid, type=type, folder=folder, test=False, head_tail=head_tail)
+            return succeed
 

@@ -11,6 +11,7 @@ from functools import partial
 import matplotlib.pyplot as plt
 from tkinter import filedialog
 from tkinter import ttk
+from AnimalTA import compat
 
 
 """This script codes four classes inherited from Frame, each one associated with one kind of data analyses. 
@@ -31,7 +32,7 @@ class Details_basics(Frame):
         self.main=main
         self.grid(sticky="nsew")
         self.ready=False
-        self.parent.attributes('-toolwindow', True)
+        compat.set_toolwindow(self.parent)
 
         Grid.columnconfigure(self.parent, 0, weight=1)
         Grid.rowconfigure(self.parent, 0, weight=1)
@@ -390,10 +391,14 @@ class Details_basics(Frame):
 
     def stay_on_top(self):
         # We want this window to remain on the top of the others
-        if self.ready:
-            self.parent.lift()
-            self.add_cur_loc()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                if self.ready:
+                    self.parent.lift()
+                    self.add_cur_loc()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass
 
     def callback(self, event):
         #Interaction between user and graph.
@@ -456,7 +461,7 @@ class Details_spatial(Frame):
         self.config(**Color_settings.My_colors.Frame_Base)
         self.parent=parent
         self.parent.geometry("1050x620")
-        self.parent.attributes('-toolwindow', True)
+        compat.set_toolwindow(self.parent)
         self.main=main
         self.propagate = False
         self.grid(sticky="news")
@@ -471,7 +476,7 @@ class Details_spatial(Frame):
         Grid.columnconfigure(self.parent, 0, weight=1)  ########NEW
         Grid.rowconfigure(self.parent, 0, weight=1)  ########NEW
         self.last_cur_pos = self.main.Scrollbar.active_pos - round(self.main.Vid.Cropped[1][0] / self.main.one_every)
-        self.parent.attributes('-toolwindow', True)
+        compat.set_toolwindow(self.parent)
 
         #Import messages
         self.Language = StringVar()
@@ -732,10 +737,14 @@ class Details_spatial(Frame):
 
     def stay_on_top(self):
         #We want the Frame window parent to stay on top
-        if self.ready:
-            self.parent.lift()
-            self.change_image()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                if self.ready:
+                    self.parent.lift()
+                    self.change_image()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass
 
     def change_image(self):
         #Change the displayedimage according to the position in the video
@@ -1174,7 +1183,7 @@ class Details_explo(Frame):
         Grid.columnconfigure(self.parent, 0, weight=1)
         Grid.rowconfigure(self.parent, 0, weight=1)
         self.last_cur_pos = self.main.Scrollbar.active_pos - int(round((self.main.Vid.Cropped[1][0]) / self.main.one_every))
-        self.parent.attributes('-toolwindow', True)
+        compat.set_toolwindow(self.parent)
 
         self.parent.grab_set()
 
@@ -1316,7 +1325,7 @@ class Details_explo(Frame):
             Show_res_lab.grid(row=0, column=0, sticky="nsew")
             Show_res=Label(Frame_res, textvariable=self.Prop_explored, **Color_settings.My_colors.Label_Base)
             Show_res.grid(row=0, column=1, sticky="w")
-            Show_res_warn=Label(Frame_res, text="⚠", **Color_settings.My_colors.Label_Base)
+            Show_res_warn=Label(Frame_res, text="âš ", **Color_settings.My_colors.Label_Base)
             Show_res_warn.grid(row=0, column=2, sticky="w")
 
             Show_res_lab.config(fg=Color_settings.My_colors.list_colors["Fg_not_valide"])
@@ -1573,7 +1582,7 @@ class Details_inter(Frame):
         Grid.columnconfigure(self.parent, 0, weight=1)  ########NEW
         Grid.rowconfigure(self.parent, 0, weight=1)  ########NEW
         self.ready=False
-        self.parent.attributes('-toolwindow', True)
+        compat.set_toolwindow(self.parent)
 
         #Import messages
         self.Language = StringVar()
@@ -1750,10 +1759,14 @@ class Details_inter(Frame):
 
     def stay_on_top(self):
         #We want the parent windows to always remain at the top.
-        if self.ready:
-            self.parent.lift()
-            self.change_image()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                if self.ready:
+                    self.parent.lift()
+                    self.change_image()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass
 
     def change_image(self):
         #If the user wants to see the elements of interest drawn over another image from the video
@@ -1847,3 +1860,4 @@ class Details_inter(Frame):
 def canvas_to_array(fig):
     fig.canvas.draw()
     return np.array(fig.canvas.renderer._renderer)
+

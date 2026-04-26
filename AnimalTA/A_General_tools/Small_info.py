@@ -1,5 +1,5 @@
 from tkinter import *
-import pyautogui
+from AnimalTA import compat
 
 
 
@@ -18,7 +18,7 @@ class small_info(Frame):
         self.info = Toplevel(self.parent)
         self.info.wm_overrideredirect(1)
 
-        pos = pyautogui.position()
+        pos = compat.get_pointer_position(self.parent)
         new_pos = (pos[0]+10, pos[1])
         self.info.wm_geometry("+%d+%d" % new_pos)
 

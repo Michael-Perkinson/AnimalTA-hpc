@@ -2,7 +2,7 @@ from tkinter import *
 import os
 from AnimalTA.E_Post_tracking import Coos_loader_saver as CoosLS
 from AnimalTA.E_Post_tracking.b_Analyses import Functions_deformation, Functions_Analyses_Speed, Interface_heatmaps
-from AnimalTA.A_General_tools import Class_Lecteur, Function_draw_arenas as Dr, UserMessages, Class_stabilise, Color_settings, Class_loading_Frame, Function_draw_arenas, Interface_extend
+from AnimalTA.A_General_tools import Class_Lecteur, Function_draw_arenas as Dr, UserMessages, Class_stabilise, Color_settings, Class_loading_Frame, Function_draw_arenas, Interface_extend, image_utils
 import numpy as np
 import cv2
 from scipy.signal import savgol_filter
@@ -10,6 +10,7 @@ from tkinter import filedialog
 from PIL import ImageFont, ImageDraw, Image
 import pickle
 from tkinter import ttk
+import sys
 
 class Lecteur(Frame):
     """This Frame allow the user to export a video that has been modified by AnimalTA.
@@ -50,7 +51,7 @@ class Lecteur(Frame):
 
         self.Arenas = Function_draw_arenas.get_arenas(self.Vid)
 
-        Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+        Param_file = UserMessages.settings_file_path()
         with open(Param_file, 'rb') as fp:
             self.Params = pickle.load(fp)
 
@@ -365,7 +366,8 @@ class Lecteur(Frame):
         #To minimise the window
         self.cache = True
         self.boss.update_idletasks()
-        self.boss.overrideredirect(False)
+        if sys.platform == "win32":
+            self.boss.overrideredirect(False)
         self.boss.state('iconic')
 
 
@@ -456,7 +458,8 @@ class Lecteur(Frame):
                 if self.cache:
                     self.boss.update_idletasks()
                     self.boss.state('normal')
-                    self.boss.overrideredirect(True)
+                    if sys.platform == "win32":
+                        self.boss.overrideredirect(True)
 
                 self.End_of_window()
                 return (True)
@@ -603,9 +606,7 @@ class Lecteur(Frame):
                     new_img = cv2.subtract(new_img, self.TMP_back)
 
                 if self.Vid.Track[1][10][2] == 1:
-                    new_img = new_img.astype(np.uint16)
-                    new_img = (new_img * 255) // self.TMP_back
-                    new_img = new_img.astype(np.uint8)
+                    new_img = image_utils.apply_relative_background(new_img, self.TMP_back)
 
                 if self.Vid.Track[1][10][0] == 1:
                     new_img = cv2.cvtColor(new_img, cv2.COLOR_BGR2GRAY)

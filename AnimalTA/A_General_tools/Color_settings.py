@@ -15,9 +15,12 @@ class Color_GUI:
 
     def refresh(self):
         # We first define what kind of backgroudn we want:
-        Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
-        with open(Param_file, 'rb') as fp:
-            Params = pickle.load(fp)
+        Param_file = UserMessages.settings_file_path()
+        try:
+            with open(Param_file, 'rb') as fp:
+                Params = pickle.load(fp)
+        except FileNotFoundError:
+            Params = {"Color_GUI": "Light"}
 
         if Params["Color_GUI"]=="Light":
             self.list_colors = {

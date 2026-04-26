@@ -2,7 +2,8 @@ from tkinter import *
 import os
 import numpy as np
 import cv2
-from AnimalTA.A_General_tools import UserMessages, compat
+from AnimalTA.A_General_tools import UserMessages
+from AnimalTA import compat
 from PIL import ImageFont, ImageDraw, Image
 
 

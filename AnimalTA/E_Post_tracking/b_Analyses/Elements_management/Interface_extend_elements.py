@@ -56,7 +56,7 @@ class Lists(Frame):
         self.yscrollbar.grid(row=2,column=1, sticky="ns")
         self.Liste_objects.bind('<<ListboxSelect>>', self.check_button)
 
-        Arrow=Label(self, text=u'\u279F', font=('Helvatical bold',20), **Color_settings.My_colors.Label_Base)
+        Arrow=Label(self, text=u'\u279F', font=('Helvetica bold',20), **Color_settings.My_colors.Label_Base)
         Arrow.grid(row=2,column=2)
 
         # Listbox of other arenas
@@ -219,5 +219,9 @@ class Lists(Frame):
 
     def stay_on_top(self):
         #Maintain this window on top
-        self.parent.lift()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                self.parent.lift()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass

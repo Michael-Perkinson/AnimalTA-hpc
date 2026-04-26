@@ -2,8 +2,8 @@ from tkinter import *
 from tkinter import ttk
 import os
 from AnimalTA.A_General_tools import UserMessages, Color_settings
+from AnimalTA import compat
 import PIL
-import cv2
 
 class Help_win(Frame):
     def __init__(self, parent, default_message="", shortcuts={}, legend={},width=0, **kwargs):
@@ -21,11 +21,15 @@ class Help_win(Frame):
         self.Messages = UserMessages.Mess[self.Language.get()]
         self.default_message=default_message
 
-        self.logo = cv2.imread(UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Logo_fond.png")))
-        self.logo = cv2.cvtColor(self.logo, cv2.COLOR_BGR2RGB)
+        self.logo = compat.load_cv_rgb_resource(
+            os.path.join("AnimalTA", "Files", "Logo_fond.png"),
+            os.path.join("AnimalTA", "Files", "Logo.png"),
+        )
         self.Size_logo = self.logo.shape
-        self.logo = cv2.resize(self.logo, (int(self.Size_logo[1] / 2), int(self.Size_logo[0] / 2)))
-        self.logo2 = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(self.logo))
+        self.logo = PIL.Image.fromarray(self.logo).resize(
+            (max(1, int(self.Size_logo[1] / 2)), max(1, int(self.Size_logo[0] / 2)))
+        )
+        self.logo2 = PIL.ImageTk.PhotoImage(image=self.logo)
 
         #Title
         Info_title=Label(self, text=self.Messages["Info"],  justify=CENTER, background=self.list_colors["Title1"], fg=self.list_colors["Fg_Title1"], font=("Helvetica", 16, "bold"))
@@ -122,7 +126,10 @@ class Help_win(Frame):
     def get_attention(self, count):
         #Make the text blink to attract user's attention
         Grid.rowconfigure(self.Frame_txt, 0, weight=1000, minsize=0)
-        self.view_logo.config(width=int(self.Size_logo[1] / 2), height=int(self.Size_logo[0] / 2))
+        self.view_logo.config(
+            width=max(1, int(self.Size_logo[1] / 2)),
+            height=max(1, int(self.Size_logo[0] / 2)),
+        )
 
         if count%2==0:
             self.view_logo.delete("all")

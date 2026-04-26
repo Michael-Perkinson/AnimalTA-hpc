@@ -11,16 +11,13 @@ import queue
 import pickle
 import sys
 import time
-from  multiprocessing import Lock, shared_memory
+from  multiprocessing import Lock
 
 '''
 To improve the speed of the tracking, we will separate the work in 2 threads.
 1. Image loading, and modifications (stabilization, light correction, greyscale...) until contours are get
 2. Target assignment and data recording
 '''
-def initialize_shared_memory(size):
-    shm = shared_memory.SharedMemory(create=True, size=size)
-    return shm
 
 def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_interest=None, head_tail=False, ref_frame=None):
     '''This is the main tracking function of the program.
@@ -36,7 +33,7 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     f.close()
     Messages = UserMessages.Mess[Language.get()]
 
-    Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+    Param_file = UserMessages.settings_file_path()
     with open(Param_file, 'rb') as fp:
         Params = pickle.load(fp)
         use_Kalman=Params["Use_Kalman"]
@@ -53,17 +50,10 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     else:
         file_name = Vid.User_Name
 
-    if not portion:
-        if not os.path.isdir(os.path.join(folder,"coordinates")):
-            os.makedirs(os.path.join(folder, "coordinates"))
-    else:
-        if not os.path.isdir(os.path.join(folder,"TMP_portion")):
-            os.makedirs(os.path.join(folder,"TMP_portion"))
-
     if portion:
-        To_save = os.path.join(folder, "TMP_portion", file_name + "_TMP_portion_Coordinates.csv")
+        To_save = os.path.join(UserMessages.tmp_portion_dir_path(folder, create=True), file_name + "_TMP_portion_Coordinates.csv")
     else:
-        To_save = os.path.join(folder, "Coordinates", file_name + "_Coordinates.csv")
+        To_save = os.path.join(UserMessages.coordinates_dir_path(folder, create=True), file_name + "_Coordinates.csv")
 
     # if the user choose to reduce the frame rate.
     one_every = Vid.Frame_rate[0] / Vid.Frame_rate[1]
@@ -110,10 +100,6 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     Nb_images_processed=multiprocessing.Value("i",0)
 
 
-
-    image_size = Prem_image_to_show.shape[0]*Prem_image_to_show.shape[1]*Prem_image_to_show.shape[2]
-    shm = initialize_shared_memory(image_size)
-
     #Creation of the process to treat images
     Locks_cnts = [Lock() for i in range(nb_cpu_extract_treat)]
 
@@ -150,26 +136,34 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     parent.loading_state.config(text=to_add)
 
 
-    def launcher():
-        for p in range(len(Processes)):
-            Processes[p].start()
-            with Nb_images_processed.get_lock():
-                if p>0 and Nb_images_processed.value >= (Vid.Cropped[1][1] / one_every - Vid.Cropped[1][0] / one_every) - (chunk_size*2):
-                    print("broke")
-                    break
-
-
-    threading.Thread(target=launcher, daemon=True).start()
-
-    while not any(p.is_alive() for p in Processes):
-        time.sleep(0.01)
+    for process in Processes:
+        process.start()
 
     while len([p for p in Processes if p.is_alive()])>0:
         time.sleep(0.25)
+        failed_processes = [p for p in Processes if p.exitcode not in (None, 0)]
+        if failed_processes:
+            for process in Processes:
+                if process.is_alive():
+                    process.terminate()
+            for process in Processes:
+                process.join(timeout=1)
+            failed_details = ", ".join(
+                "pid={} exitcode={}".format(process.pid, process.exitcode)
+                for process in failed_processes
+            )
+            raise RuntimeError("Multiprocess tracking worker failed ({})".format(failed_details))
         with Nb_images_processed.get_lock():  # Acquire lock to safely modify the shared value
             parent.timer=(Nb_images_processed.value)/(Vid.Cropped[1][1]/one_every-Vid.Cropped[1][0]/one_every)
             parent.show_load()
 
+    failed_processes = [p for p in Processes if p.exitcode not in (None, 0)]
+    if failed_processes:
+        failed_details = ", ".join(
+            "pid={} exitcode={}".format(process.pid, process.exitcode)
+            for process in failed_processes
+        )
+        raise RuntimeError("Multiprocess tracking worker failed ({})".format(failed_details))
 
     parent.timer = 1
     parent.show_load()
@@ -186,7 +180,6 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
             return (True)
         elif type=="variable":
             ID_kepts_toret = [list(sublist) for sublist in ID_kepts]
-            print(ID_kepts_toret)
             return (True,list(ID_kepts_toret))
 
 

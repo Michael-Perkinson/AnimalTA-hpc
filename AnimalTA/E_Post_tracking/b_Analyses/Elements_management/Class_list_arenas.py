@@ -155,7 +155,7 @@ class List_arenas(Frame):
         self.Canvas_shaow_Ar.create_image(0, 0, image=img2, anchor=NW)
 
     def stop_show_Arenas(self, event):
-        cv2.destroyAllWindows()
+        return
 
     def remove_sel(self,*arg):
         #Avoid that user can select a vido.

@@ -1,11 +1,12 @@
 from tkinter import *
 from AnimalTA.A_General_tools import UserMessages, Diverse_functions, Color_settings, Small_info, Message_simple_question as MsgBox
+from AnimalTA import compat
 import os
 import pickle
 
 
 def change_params(Param,new_val):
-    Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+    Param_file = UserMessages.settings_file_path()
     with open(Param_file, 'rb') as fp:
         Params = pickle.load(fp)
 
@@ -20,7 +21,7 @@ class Settings_panel(Frame):
     def __init__(self, parent, main, **kwargs):
         Frame.__init__(self, parent, bd=5, **kwargs)
         self.parent=parent
-        self.parent.iconbitmap(UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Logo.ico")))
+        compat.set_window_icon(self.parent)
         self.main=main
         Grid.columnconfigure(parent, 0, weight=1)
         Grid.rowconfigure(parent, 0, weight=1)
@@ -42,7 +43,7 @@ class Settings_panel(Frame):
         f.close()
         self.Messages = UserMessages.Mess[self.Language.get()]
 
-        self.Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+        self.Param_file = UserMessages.settings_file_path()
         with open(self.Param_file, 'rb') as fp:
             self.Params = pickle.load(fp)
 

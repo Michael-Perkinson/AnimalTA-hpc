@@ -1,3 +1,20 @@
 # Default ignored files
 /shelf/
 /workspace.xml
+
+# Claude Code
+.claude/
+
+# Built container
+*.sif
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+venv/
+.venv/

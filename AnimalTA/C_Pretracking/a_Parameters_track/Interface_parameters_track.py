@@ -3,7 +3,7 @@ from tkinter import *
 import numpy as np
 from AnimalTA.C_Pretracking.a_Parameters_track import Interface_nb_per_Ar, Draw_entrance, Interface_supp_back_params
 from AnimalTA.A_General_tools import Class_change_vid_menu, Class_Lecteur, Function_draw_arenas as Dr, UserMessages, \
-    User_help, Class_stabilise, Color_settings
+    User_help, Class_stabilise, Color_settings, image_utils
 from AnimalTA.G_Specials import Test_specific_parts_track
 
 from functools import partial
@@ -20,6 +20,7 @@ class Param_definer(Frame):
         self.parent=parent
         self.main_frame=main_frame
         self.boss=boss
+        self.closing = False
         self.grid(row=0,column=0,rowspan=2,sticky="nsew")
         self.Vid = Video_file
         self.portion = portion
@@ -35,7 +36,8 @@ class Param_definer(Frame):
         if self.portion:
             Grid.columnconfigure(self.parent, 0, weight=1)
             Grid.rowconfigure(self.parent, 0, weight=1)
-            self.parent.geometry("1200x750")
+            _win_h = max(600, min(750, self.parent.winfo_screenheight() - 80))
+            self.parent.geometry(f"1200x{_win_h}")
 
         #Importation of the messages
         self.Language = StringVar()
@@ -705,12 +707,18 @@ class Param_definer(Frame):
             self.Vid_Lecteur.focus_set()
 
     def modif_image(self, img=[], affi=True, change_track=None, **arg):
+        if self.closing:
+            return [] if not affi else None
+
         self.update_thresh_scales()
         #Change the original image accordingly to the parameters defined by user
         if change_track!=None:
             self.CheckVar.set(change_track)
 
         liste_positions=[]
+
+        if img is None:
+            return liste_positions if not affi else None
 
         #Stabilisation
 
@@ -840,9 +848,10 @@ class Param_definer(Frame):
                             TMP_image_to_show2 = cv2.subtract(TMP_image_to_show2, self.TMP_back)
 
                         if self.rel_back.get()==1:
-                            TMP_image_to_show2 = TMP_image_to_show2.astype(np.uint16)
-                            TMP_image_to_show2=(TMP_image_to_show2*255) // self.TMP_back
-                            TMP_image_to_show2 = TMP_image_to_show2.astype(np.uint8)
+                            TMP_image_to_show2 = image_utils.apply_relative_background(
+                                TMP_image_to_show2,
+                                self.TMP_back,
+                            )
 
                         if self.var_color_mode.get()==1:
                             TMP_image_to_show2 = cv2.cvtColor(TMP_image_to_show2, cv2.COLOR_BGR2GRAY)
@@ -904,7 +913,7 @@ class Param_definer(Frame):
                                         #To show the distance threshold, we must find the position of the target for the previous frame:
                                         if self.Scrollbar.active_pos > round(self.Vid.Cropped[1][0]/self.one_every):
                                             old_img = self.Vid_Lecteur.update_image(int((self.Scrollbar.active_pos-1)),return_img=True)
-                                            Old_pos=self.modif_image(img=old_img,affi=False)
+                                            Old_pos=self.modif_image(img=old_img,affi=False) if old_img is not None else []
                                             overlay=np.copy(img)
                                             alpha = 0.25  # Transparency factor.
 
@@ -998,6 +1007,10 @@ class Param_definer(Frame):
 
     def End_of_window(self):
         #Close properly
+        if self.closing:
+            return
+
+        self.closing = True
         self.unbind_children(self)
         self.Vid_Lecteur.proper_close()
         self.grab_release()

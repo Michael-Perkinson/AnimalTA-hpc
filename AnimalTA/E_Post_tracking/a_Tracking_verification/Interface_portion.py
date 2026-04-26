@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 from AnimalTA.D_Tracking_process import Do_the_track
 from AnimalTA.E_Post_tracking import Coos_loader_saver as CoosLS
-from AnimalTA.A_General_tools import Class_Lecteur, UserMessages, Class_stabilise, Color_settings
+from AnimalTA.A_General_tools import Class_Lecteur, UserMessages, Class_stabilise, Color_settings, Class_loading_Frame
 from AnimalTA.C_Pretracking import Interface_back, Interface_arenas
 from AnimalTA.C_Pretracking.a_Parameters_track import Interface_parameters_track
 
@@ -90,10 +90,8 @@ class Show(Frame):
         self.B_redo_track.grid(row=5,column=0, columnspan=2, sticky="ew")
 
         #Show the progression of the tracking
-        self.loading_lab = Label(self.User_buttons, text="", height=10, **Color_settings.My_colors.Label_Base)
-        self.loading_lab.grid(row=6,column=0)
-        self.loading_bar = Canvas(self.User_buttons, height=10, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
-        self.loading_bar.grid(row=6,column=0, columnspan=3, sticky="ew")
+        self.load_frame = Class_loading_Frame.Loading(self.User_buttons, text=self.Messages["Loading"], grab=False)
+        self.load_frame.grid(row=6, column=0, columnspan=3, sticky="ew", padx=6, pady=6)
 
         self.B_validate_track = Button(self.User_buttons, text=self.Messages["Portion8"], command=self.validate_correction, **Color_settings.My_colors.Button_Base)
         self.B_validate_track.config(state="disable")
@@ -177,12 +175,8 @@ class Show(Frame):
 
     def show_load(self):
         #Show the progress of the tracking process
-        self.loading_lab.config(text=self.Messages["Loading"])
-        self.loading_lab.update()
-        self.loading_bar.delete('all')
-        self.loading_bar.create_rectangle(0, 0, 300, self.loading_bar.cget("height"), fill=Color_settings.My_colors.list_colors["Loading_before"])
-        self.loading_bar.create_rectangle(0, 0, self.timer * 300, self.loading_bar.cget("height"), fill=Color_settings.My_colors.list_colors["Loading_after"])
-        self.loading_bar.update()
+        self.load_frame.loading_state.config(text=self.Messages["Loading"])
+        self.load_frame.show_load(self.timer)
 
     def modif_image(self, img=[], aff=False, move=True, actual_pos=None, *args):
         #draw the target's potition and trajectories on the image

@@ -7,6 +7,7 @@ from tkinter import *
 import os
 from AnimalTA.A_General_tools import UserMessages, Diverse_functions, Color_settings
 from AnimalTA.B_Project_organisation import Interface_pretracking
+from AnimalTA import compat
 import subprocess
 import urllib.request
 from tkinter import ttk
@@ -32,6 +33,7 @@ class Mainframe(Tk):
     #Launch the rest of animalTA
     def __init__(self):
         Tk.__init__(self)
+        compat.startup_debug("Tk root created")
         if len(sys.argv) > 1:
             file_path = sys.argv[1]
             # Your logic to handle the file here
@@ -43,7 +45,8 @@ class Mainframe(Tk):
 
 
         #We check the parameters
-        Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+        Param_file = UserMessages.settings_file_path()
+        compat.startup_debug(f"settings path resolved to {Param_file}")
 
         temp_dir = tempfile.gettempdir()
         temp_destination = os.path.join(temp_dir, "Settings_AnimalTA_10082024")
@@ -111,6 +114,7 @@ class Mainframe(Tk):
                     pickle.dump(Params, fp)
 
         Diverse_functions.low_priority(Params["Low_priority"])
+        compat.startup_debug("settings loaded and process priority configured")
 
         if os.environ.get("ANIMALTA_DISABLE_UPDATE") == "1" or sys.platform != "win32":
             new_update = None
@@ -184,7 +188,7 @@ class Mainframe(Tk):
     def do_update(self):
         try:
             Update_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "last_update.exe"))
-            Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+            Param_file = UserMessages.settings_file_path()
 
             # Get the system's temporary directory
             temp_dir = tempfile.gettempdir()
@@ -203,8 +207,10 @@ class Mainframe(Tk):
     def open_AnimalTA(self, current_version, new_update, file_path) -> object:
         #test_tres.test_fn()
         # If there was no parameters file, we add a new one: (versions before 3.0.0 did not had those)
+        compat.startup_debug("creating main pretracking interface")
         self.frame = Interface_pretracking.Interface(self, current_version, new_update, file_path=file_path)
         self.frame.grid(sticky="nsew")
+        compat.startup_debug("main pretracking interface ready")
 
 
 if sys.platform == "win32":
@@ -227,9 +233,15 @@ def set_appwindow(root):
 
 
 def start_mainframe():
+    compat.startup_debug(
+        f"start_mainframe begin; platform={sys.platform} DISPLAY={os.environ.get('DISPLAY', '<unset>')}"
+    )
     root=Mainframe()
+    root.title("AnimalTA")
+    compat.startup_debug("Mainframe instance created")
     style = ttk.Style()
     style.theme_use('clam')
+    compat.startup_debug("Tk style configured")
 
     #We create the styles:
     style.map(
@@ -296,13 +308,19 @@ def start_mainframe():
               background=[("selected", Color_settings.My_colors.list_colors["Selected_row_check"])],
               foreground=[("selected", Color_settings.My_colors.list_colors["Fg_Selected_row_check"])])
 
-
-    root.overrideredirect(1)
-    root.geometry("1250x720")
-    root.geometry("+100+100")
-    root.after(10, lambda: set_appwindow(root))
+    if sys.platform != "win32":
+        # On Linux the WM title bar consumes screen space; fit the window to what's available.
+        _screen_h = root.winfo_screenheight()
+        _win_h = max(600, min(720, _screen_h - 80))
+        root.geometry(f"1250x{_win_h}+100+100")
+    else:
+        root.geometry("1250x720")
+        root.geometry("+100+100")
     if sys.platform == "win32":
-        root.iconbitmap(UserMessages.resource_path(os.path.join("AnimalTA","Files","Logo.ico")))
+        root.overrideredirect(1)
+        root.after(10, lambda: set_appwindow(root))
+    compat.set_window_icon(root)
+    compat.startup_debug("root window configured; entering mainloop")
 
     Grid.rowconfigure(root,0,weight=1)
     Grid.columnconfigure(root,0,weight=1)

@@ -19,6 +19,7 @@ import pymsgbox
 from tkinter import simpledialog
 import traceback
 import time
+import sys
 
 class Extend(Frame):
     """This frame is a list of all the videos. The user can select the ones to be tracked or analysed"""
@@ -47,7 +48,7 @@ class Extend(Frame):
         self.urgent_close = False
 
         #We load the parameters
-        Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+        Param_file = UserMessages.settings_file_path()
         with open(Param_file, 'rb') as fp:
             self.Params = pickle.load(fp)
 
@@ -118,14 +119,9 @@ class Extend(Frame):
 
         self.Liste.grid(row=3,column=0)
 
-        self.loading_canvas=Frame(self, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
-        self.loading_canvas.grid(row=5,columnspan=2)
-        self.loading_state=Label(self.loading_canvas, text="", **Color_settings.My_colors.Label_Base)
-        self.loading_state.grid(row=0, column=0)
-
-        self.loading_bar=Canvas(self.loading_canvas, height=10, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
-        self.loading_bar.create_rectangle(0, 0, 400, self.loading_bar.cget("height"), fill=Color_settings.My_colors.list_colors["Loading_before"])
-        self.loading_bar.grid(row=0, column=1)
+        self.load_frame = Class_loading_Frame.Loading(self, text="", grab=False)
+        self.load_frame.grid(row=5, column=0, columnspan=2, sticky="ew", padx=10, pady=6)
+        self.loading_state = self.load_frame.loading_state
 
         #Minimize the window which processing
         self.bouton_hide = Button(self, text=self.Messages["Do_track1"], command=self.hide, **Color_settings.My_colors.Button_Base)
@@ -168,7 +164,8 @@ class Extend(Frame):
         self.cache=True
         self.parent.wm_state('iconic')
         self.boss.parent.update_idletasks()
-        self.boss.parent.overrideredirect(False)
+        if sys.platform == "win32":
+            self.boss.parent.overrideredirect(False)
         self.boss.parent.state('iconic')
 
     def cancel(self):
@@ -1198,17 +1195,15 @@ class Extend(Frame):
         if self.cache:#minimize
             self.boss.parent.update_idletasks()
             self.boss.parent.state('normal')
-            self.boss.parent.overrideredirect(True)
+            if sys.platform == "win32":
+                self.boss.parent.overrideredirect(True)
 
         self.boss.save()
         self.parent.destroy()
 
     def show_load(self):
         #Show the progress of the process
-        self.loading_bar.delete('all')
-        self.loading_bar.create_rectangle(0, 0, 400, self.loading_bar.cget("height"), fill=Color_settings.My_colors.list_colors["Loading_before"])
-        self.loading_bar.create_rectangle(0, 0, self.timer*400, self.loading_bar.cget("height"), fill=Color_settings.My_colors.list_colors["Loading_after"])
-        self.loading_bar.update()
+        self.load_frame.show_load(self.timer)
 
     def close(self):
         if self.running == None:
@@ -1264,10 +1259,10 @@ class Extend(Frame):
         else:
             file_name = Vid.User_Name
 
-        if not os.path.isdir(os.path.join(self.boss.folder, "coordinates")):
-            os.makedirs(os.path.join(self.boss.folder, "coordinates"))
-
-        To_save = os.path.join(self.boss.folder, "Coordinates", file_name + "_Coordinates.csv")
+        To_save = os.path.join(
+            UserMessages.coordinates_dir_path(self.boss.folder, create=True),
+            file_name + "_Coordinates.csv",
+        )
         np.savetxt(To_save, General_Coos, delimiter=';', encoding="utf-8", fmt='%s')
 
     def find_sequences(self, Area, ID):
