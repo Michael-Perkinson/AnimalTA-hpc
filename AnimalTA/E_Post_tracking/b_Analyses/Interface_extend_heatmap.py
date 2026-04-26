@@ -224,8 +224,6 @@ class Lists(Frame):
                     diff_x=int(all_centers[0][0]-all_centers[pos][0])
                     diff_y = int(all_centers[0][1] - all_centers[pos][1])
 
-                    print(diff_x)
-
                     move_array=heat.copy()
                     if diff_x>0:
                         zeros_x = np.zeros((heat.shape[0], diff_x, heat.shape[2]), dtype=heat.dtype)  # one column of zeros

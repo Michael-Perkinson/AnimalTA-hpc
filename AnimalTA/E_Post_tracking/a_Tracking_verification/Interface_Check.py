@@ -316,7 +316,6 @@ class Lecteur(Frame):
             else:
                 self.all_stops_verif.remove(rID)
         self.modif_image()
-        print(self.all_stops_verif)
 
 
 
@@ -796,7 +795,6 @@ class Lecteur(Frame):
             dist = np.linalg.norm(points_end - points_beg, axis=1) / float(self.Vid.Scale[0])
             mask = dist <= threshold
             windows=np.where(mask)[0]
-            print(windows)
             window_diff = np.diff(windows)
             window_diff = np.concatenate(([0], window_diff))  # prepend 0 for first window
             mask_diff = window_diff >= window_length  # True if this is start of new window

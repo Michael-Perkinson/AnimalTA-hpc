@@ -199,9 +199,7 @@ class Lists(Frame):
                                         position = [seq_sub[0] for seq_sub in Vid.Sequences[IndID]].index(seq[0])
                                         Vid.Sequences[IndID][position] = seq
                                 except:
-                                    print(IndID)
-                                    print(Vid.Sequences)
-                                    print(Vid.Sequences[IndID])
+                                    pass
 
 
         self.parent.destroy()

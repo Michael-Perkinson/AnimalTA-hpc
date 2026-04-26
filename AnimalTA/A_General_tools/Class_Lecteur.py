@@ -601,7 +601,8 @@ class Lecteur(Frame):
             event.x = self.ratio * (event.x - (self.canvas_video.winfo_width()-self.shape[1])/2) + self.zoom_sq[0]
             event.y = self.ratio * (event.y - (self.canvas_video.winfo_height()-self.shape[0])/2) + self.zoom_sq[1]
             if  event.x >= 0 and event.y >= 0 and event.x <= self.Size[1] and event.y <= self.Size[0]:
-                self.parent.right_click((event.x,event.y))
+                if hasattr(self.parent, 'right_click'):
+                    self.parent.right_click((event.x,event.y))
 
     def release(self, event):
         '''The info about where the frame was clicked is sent to the Video Reader container'''
