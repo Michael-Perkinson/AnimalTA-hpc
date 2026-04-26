@@ -10,9 +10,8 @@
 *.sif
 *.deb
 
-# Local test data and planning docs
+# Local test data
 test_project/
-refactor.md
 
 # Python
 __pycache__/
