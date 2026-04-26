@@ -19,6 +19,23 @@ jobs:
         with:
           apptainer-version: 1.3.6
 
+      - name: Delete previous artifact
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.rest.actions.listArtifactsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'animalta-sif',
+            });
+            for (const artifact of artifacts.data.artifacts) {
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+              });
+            }
+
       - name: Build container
         run: apptainer build animalta.sif Apptainer.def
 
