@@ -27,7 +27,7 @@ jobs:
         with:
           name: animalta-sif
           path: animalta.sif
-          retention-days: 90
+          retention-days: 7
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
