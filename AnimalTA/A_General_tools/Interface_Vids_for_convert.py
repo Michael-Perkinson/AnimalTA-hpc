@@ -4,7 +4,7 @@ import os
 import pickle
 from AnimalTA.A_General_tools import UserMessages, Class_converter, Color_settings, Message_simple_question as MsgBox, Small_info, Class_loading_Frame
 from AnimalTA import Class_Video
-import ntpath
+from AnimalTA import compat
 import multiprocessing
 import time
 
@@ -110,7 +110,8 @@ class Convert(Frame):
 
         #Show the progression of the convertions
         self.loading_canvas=Frame(self, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
-        self.loading_canvas.grid(row=5,columnspan=2)
+        self.loading_canvas.grid(row=5, columnspan=2, sticky="ew", padx=10, pady=8)
+        Grid.columnconfigure(self.loading_canvas, 0, weight=1)
 
         #Minimise the AnimalTA program to allow user to do something else while converting
         self.bouton_hide = Button(self, text=self.Messages["Do_track1"], command=self.hide, **Color_settings.My_colors.Button_Base)
@@ -157,14 +158,7 @@ class Convert(Frame):
         #Run the convertions and close this window in the end
         list_item = self.Liste.curselection()
 
-        #We don't want user to interact with buttons during conversions
-        self.bouton.config(state="disable", **Color_settings.My_colors.Button_Base)
-        self.bouton_sel_all.config(state="disable", **Color_settings.My_colors.Button_Base)
-        self.Liste.config(state="disable", **Color_settings.My_colors.ListBox)
-        self.CheckB_fr.config(state="disable")
-        self.Scale_qual.config(state="disable", fg=Color_settings.My_colors.list_colors["Fg_Base_ina"])
-
-        self.bouton_hide.grid(row=7)
+        self._set_conversion_controls_enabled(False)
 
 
         self.first_time_rename = True#We never asked if the user wants to rename the videos
@@ -174,6 +168,7 @@ class Convert(Frame):
         all_counters = []
         all_loadings = []
         self.list_errors=[]
+        self.prepare_errors = []
         all_process = []
 
         vid_count = 0
@@ -182,17 +177,17 @@ class Convert(Frame):
                 self.fps_val=None
 
             try:
-                Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+                Param_file = UserMessages.settings_file_path()
                 with open(Param_file, 'rb') as fp:
                     self.Params = pickle.load(fp)
 
                 file_name = os.path.basename(self.list_vid_minus[V])
                 point_pos = file_name.rfind(".")
                 file_name_cut = file_name[:point_pos]
-                output_directory = os.path.join(self.boss.folder, "converted_vids")
-
-                if not os.path.isdir(output_directory):  # Create a new directory if it doesn't exist
-                    os.makedirs(output_directory)
+                output_directory = UserMessages.converted_videos_dir_path(
+                    self.boss.folder,
+                    create=True,
+                )
                 new_file = os.path.join(output_directory, file_name_cut + ".avi")
 
                 if os.path.exists(new_file) or os.path.exists(new_file.replace(".avi", f"_part_1.avi")):  # CTXT
@@ -224,13 +219,25 @@ class Convert(Frame):
                 all_loadings.append(Class_loading_Frame.Loading(self.loading_canvas, text=self.Messages["Video"] + " {act}/{tot}".format(act=vid_count+1,tot=len(list_item)), grab=False))
                 vid_count += 1
 
-            except:
+            except Exception as exc:
                 self.list_errors.append(self.list_vid_minus[V])
+                self.prepare_errors.append((self.list_vid_minus[V], "{}: {}".format(type(exc).__name__, exc)))
+                compat.startup_debug("conversion setup failed for {}: {}: {}".format(
+                    self.list_vid_minus[V],
+                    type(exc).__name__,
+                    exc,
+                ))
 
         if self.Params["Low_priority"]:
             num_processes=1
         else:
-            num_processes = min(multiprocessing.cpu_count()-1, len(all_process))
+            num_processes = min(max(1, multiprocessing.cpu_count() - 1), len(all_process))
+
+        if len(all_process) == 0:
+            self._set_conversion_controls_enabled(True)
+            self._show_prepare_errors()
+            return
+
         with multiprocessing.Pool(num_processes) as pool:
             results = [pool.apply_async(Class_converter.convert_to_avi, args) for args in all_process]
 
@@ -241,7 +248,7 @@ class Convert(Frame):
 
                     if progress>0.00001 and not results[cur_pro].ready():
                         if not bool(all_loadings[cur_pro].grid_info()):
-                            all_loadings[cur_pro].grid()
+                            all_loadings[cur_pro].grid(sticky="ew", padx=10, pady=2)
                         all_loadings[cur_pro].show_load(progress)
 
                     elif bool(all_loadings[cur_pro].grid_info()):
@@ -259,7 +266,7 @@ class Convert(Frame):
             if result[0] != "Error":
                 if self.Vid == None:
                     self.boss.liste_of_videos.append(
-                        Class_Video.Video(File_name=result[0][0][1], User_Name=ntpath.basename(result[2]),
+                        Class_Video.Video(File_name=result[0][0][1], User_Name=os.path.basename(result[2]),
                                           Folder=self.boss.folder))
 
                     self.boss.liste_of_videos[-1].Fusion = result[0]
@@ -311,6 +318,47 @@ class Convert(Frame):
         self.boss.save()
 
         self.End_of_window()
+
+    def _set_conversion_controls_enabled(self, enabled):
+        state = "normal" if enabled else "disable"
+        self.bouton.config(state=state, **Color_settings.My_colors.Button_Base)
+        if enabled:
+            self.bouton.config(background=Color_settings.My_colors.list_colors["Validate"],
+                               fg=Color_settings.My_colors.list_colors["Fg_Validate"])
+
+        self.bouton_sel_all.config(state=state, **Color_settings.My_colors.Button_Base)
+        self.Liste.config(state=state, **Color_settings.My_colors.ListBox)
+        self.CheckB_fr.config(state=state)
+        self.Scale_qual.config(
+            state=state,
+            fg=Color_settings.My_colors.list_colors["Fg_Base" if enabled else "Fg_Base_ina"],
+        )
+
+        if enabled:
+            self.bouton_hide.grid_forget()
+            if self.FPS_corr.get():
+                self.bouton.config(state="disable", **Color_settings.My_colors.Button_Base)
+        else:
+            self.bouton_hide.grid(row=7)
+
+    def _show_prepare_errors(self):
+        if not self.prepare_errors:
+            return
+
+        summary_lines = []
+        for video_path, error_message in self.prepare_errors[:3]:
+            summary_lines.append("{}: {}".format(os.path.basename(video_path), error_message))
+        if len(self.prepare_errors) > 3:
+            summary_lines.append("...")
+
+        message = "Conversion could not start.\n" + "\n".join(summary_lines)
+        question = MsgBox.Messagebox(
+            parent=self,
+            title=self.Messages["Conversion"],
+            message=message,
+            Possibilities=[self.Messages["Continue"]],
+        )
+        self.wait_window(question)
 
     def End_of_window(self):
         self.boss.update_row_display()

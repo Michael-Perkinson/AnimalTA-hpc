@@ -1,6 +1,5 @@
+import sys
 import datetime
-import ntpath
-import pyautogui
 import pickle
 from tkinter import *
 from tkinter import simpledialog
@@ -23,12 +22,11 @@ from functools import partial
 import decord
 from copy import deepcopy
 import secrets
+from AnimalTA import compat
 if sys.platform == "win32":
     from ctypes import windll
 import copy
 import cv2
-import imghdr
-import sys
 import threading
 
 
@@ -39,6 +37,7 @@ class Interface(Frame):
     3. A set of options to set tracking parameters, correct the trajectories or analyses them."""
     def __init__(self, parent, current_version, new_update, liste_of_videos=[], file_path=None, **kwargs):
         Frame.__init__(self, parent, bd=5, **kwargs)
+        compat.startup_debug("Interface_pretracking init begin")
         self.list_colors = Color_settings.My_colors.list_colors
         self.config(background=Color_settings.My_colors.list_colors["Main_cnt"], bd=3, highlightthickness=0)
         self.parent = parent
@@ -111,12 +110,14 @@ class Interface(Frame):
         Grid.columnconfigure(self, 0, weight=1)
 
         # User help:
+        compat.startup_debug("building help panel")
         self.HW = User_help.Help_win(self.canvas_main, default_message=self.Messages["Welcome"], legend={self.Messages["General23"]:self.list_colors["Button_ready"],self.Messages["General24"]:self.list_colors["Button_half"],self.Messages["General25"]:self.list_colors["Button_done"]},
                                      shortcuts={self.Messages["Short_Mousewheel"]:self.Messages["Short_Mousewheel_G"],
                                                 self.Messages["Short_arrows"]:self.Messages["Short_arrows_G"],
                                                 self.Messages["Short_del"]:self.Messages["Short_del_G"],
-                                                self.Messages["Short_shift_del"]: self.Messages["Short_multi_del"], }, width=250)
+                                                 self.Messages["Short_shift_del"]: self.Messages["Short_multi_del"], }, width=250)
         self.HW.grid(row=0, column=1, sticky="nsew")
+        compat.startup_debug("help panel ready")
 
         self.canvas_show = Frame(self.canvas_main, bd=0, highlightthickness=0, relief='ridge', **Color_settings.My_colors.Frame_Base)
         self.canvas_show.grid(row=0, column=0, rowspan=2, sticky="nsew")
@@ -322,6 +323,7 @@ class Interface(Frame):
         self.HW.get_attention(0)
 
         self.autosave()
+        compat.startup_debug("Interface_pretracking init complete")
         if file_path!=None:
             self.open_file2(new_file=file_path)
 
@@ -378,21 +380,21 @@ class Interface(Frame):
         largeur = 10
         if event.widget == self and not self.fullscreen_status:
             if event.y > self.parent.winfo_height() - largeur and event.y < self.parent.winfo_height():
-                self.pressed_bord = [0, pyautogui.position()[1]]  # 0=bottom, then clockwise
+                self.pressed_bord = [0, compat.get_pointer_position(self.parent)[1]]  # 0=bottom, then clockwise
                 self.size_before = [self.parent.winfo_width(), self.parent.winfo_height()]
 
             elif event.x < largeur and event.x > 0:
-                self.pressed_bord = [1, pyautogui.position()[0]]  # 0=bottom, then clockwise
+                self.pressed_bord = [1, compat.get_pointer_position(self.parent)[0]]  # 0=bottom, then clockwise
                 self.size_before = [self.parent.winfo_width(), self.parent.winfo_height()]
                 self.parent.win_old_pos = (self.parent.winfo_x(), self.parent.winfo_y())
 
             elif event.y < largeur and event.y > 0:
-                self.pressed_bord = [2, pyautogui.position()[1]]  # 0=bottom, then clockwise
+                self.pressed_bord = [2, compat.get_pointer_position(self.parent)[1]]  # 0=bottom, then clockwise
                 self.size_before = [self.parent.winfo_width(), self.parent.winfo_height()]
                 self.parent.win_old_pos = (self.parent.winfo_x(), self.parent.winfo_y())
 
             elif event.x > self.parent.winfo_width() - largeur and event.x < self.parent.winfo_width():
-                self.pressed_bord = [3, pyautogui.position()[0]]  # 0=bottom, then clockwise
+                self.pressed_bord = [3, compat.get_pointer_position(self.parent)[0]]  # 0=bottom, then clockwise
                 self.size_before = [self.parent.winfo_width(), self.parent.winfo_height()]
 
     def change_cursor(self, event):
@@ -417,15 +419,15 @@ class Interface(Frame):
         if not self.fullscreen_status and event.widget == self:
             if self.pressed_bord[0] == 0:
                 self.changing = True
-                diff = pyautogui.position()[1] - self.pressed_bord[1]
+                diff = compat.get_pointer_position(self.parent)[1] - self.pressed_bord[1]
                 width_M = self.size_before[0]
                 height_M = self.size_before[1] + diff
                 self.parent.geometry(str(width_M) + "x" + str(height_M))
 
             if self.pressed_bord[0] == 1:
                 self.changing = True
-                pos_abs = pyautogui.position()
-                diff = pyautogui.position()[0] - self.pressed_bord[1]
+                pos_abs = compat.get_pointer_position(self.parent)
+                diff = pos_abs[0] - self.pressed_bord[1]
                 width_M = self.size_before[0] - diff
                 height_M = self.size_before[1]
                 self.parent.geometry(str(width_M) + "x" + str(height_M))
@@ -435,8 +437,8 @@ class Interface(Frame):
 
             if self.pressed_bord[0] == 2:
                 self.changing = True
-                pos_abs = pyautogui.position()
-                diff = pyautogui.position()[1] - self.pressed_bord[1]
+                pos_abs = compat.get_pointer_position(self.parent)
+                diff = pos_abs[1] - self.pressed_bord[1]
                 width_M = self.size_before[0]
                 height_M = self.size_before[1] - diff
                 self.parent.geometry(str(width_M) + "x" + str(height_M))
@@ -445,27 +447,30 @@ class Interface(Frame):
 
             if self.pressed_bord[0] == 3:
                 self.changing = True
-                diff = pyautogui.position()[0] - self.pressed_bord[1]
+                diff = compat.get_pointer_position(self.parent)[0] - self.pressed_bord[1]
                 width_M = self.size_before[0] + diff
                 height_M = self.size_before[1]
                 self.parent.geometry(str(width_M) + "x" + str(height_M))
 
     def minimize(self):
         # Minimaze the main window
-        self.master.overrideredirect(False)
+        if sys.platform == "win32":
+            self.master.overrideredirect(False)
         self.master.wm_iconify()
         self.master.bind('<FocusIn>', self.on_deiconify)
 
     def on_deiconify(self, *arg):
         # Come back from minimize state
         if not self.master.wm_state() == "iconic":
-            self.master.overrideredirect(True)
+            if sys.platform == "win32":
+                self.master.overrideredirect(True)
             self.master.unbind("<FocusIn>")
             if self.fullscreen_status:
                 screen_width = self.master.winfo_screenwidth()
                 screen_height = self.master.winfo_screenheight()
                 self.parent.geometry("{0}x{1}+0+0".format(screen_width, screen_height))
-            self.master.after(10, lambda: self.set_appwindow(self.master))
+            if sys.platform == "win32":
+                self.master.after(10, lambda: self.set_appwindow(self.master))
 
     def release_size(self, event):
         # When the user release the mouse after resizing the window
@@ -476,13 +481,13 @@ class Interface(Frame):
 
     def press_fenetre(self, event):
         # Detect if teh user wants to move thh window
-        self.press_position = pyautogui.position()
+        self.press_position = compat.get_pointer_position(self.parent)
         self.parent.win_old_pos = (self.parent.winfo_x(), self.parent.winfo_y())
 
     def move_fenetre(self, event):
         # Move teh window according to cursor position
         if not self.fullscreen_status:
-            self.actual_pos = pyautogui.position()
+            self.actual_pos = compat.get_pointer_position(self.parent)
             deplacement = ("", str(self.actual_pos[0] - self.press_position[0] + self.parent.win_old_pos[0]),
                            str(self.actual_pos[1] - self.press_position[1] + self.parent.win_old_pos[1]))
             self.parent.geometry("+".join(deplacement))
@@ -501,7 +506,12 @@ class Interface(Frame):
 
         else:
             self.fullscreen_status = False
-            self.parent.geometry("1250x720")
+            if sys.platform != "win32":
+                _screen_h = self.winfo_screenheight()
+                _win_h = max(600, min(720, _screen_h - 80))
+                self.parent.geometry(f"1250x{_win_h}")
+            else:
+                self.parent.geometry("1250x720")
         self.update()
 
         try:#We show the table rows only if the table is visible and not replaced by another window
@@ -745,8 +755,12 @@ class Interface(Frame):
                 with open(self.file_to_open, 'rb') as fp:
                     data_to_load = pickle.load(fp)
 
+                self.file_to_open, relocated_folder = self._prepare_writable_project_copy(
+                    data_to_load,
+                    self.file_to_open,
+                )
                 self.project_name.set(data_to_load["Project_name"])
-                self.folder = data_to_load["Folder"]
+                self.folder = relocated_folder
                 self.liste_of_videos = data_to_load["Videos"]
                 self.file_to_save = self.file_to_open
 
@@ -1014,12 +1028,18 @@ class Interface(Frame):
                         self.liste_of_videos[V].type="Video"
 
                     if not Interface_Change_Folder.check_vid(self.liste_of_videos[V]):
-                        file_name=ntpath.basename(self.liste_of_videos[V].File_name)
-                        if os.path.isfile(self.folder+"/converted_vids/"+file_name) and self.liste_of_videos[V].type=="Video":
-                            self.liste_of_videos[V].File_name=self.folder+"/converted_vids/"+file_name
+                        file_name=os.path.basename(self.liste_of_videos[V].File_name)
+                        converted_dir = UserMessages.converted_videos_dir_path(self.folder)
+                        converted_file = os.path.join(converted_dir, file_name)
+                        if os.path.isfile(converted_file) and self.liste_of_videos[V].type=="Video":
+                            self.liste_of_videos[V].File_name=converted_file
                             for F in range(len(self.liste_of_videos[V].Fusion)):
-                                if os.path.isfile(self.folder + "/converted_vids/" + ntpath.basename(self.liste_of_videos[V].Fusion[F][1])):
-                                    self.liste_of_videos[V].Fusion[F][1] = self.folder+"/converted_vids/"+ ntpath.basename(self.liste_of_videos[V].Fusion[F][1])
+                                converted_fusion_file = os.path.join(
+                                    converted_dir,
+                                    os.path.basename(self.liste_of_videos[V].Fusion[F][1]),
+                                )
+                                if os.path.isfile(converted_fusion_file):
+                                    self.liste_of_videos[V].Fusion[F][1] = converted_fusion_file
                             if Interface_Change_Folder.check_vid(self.liste_of_videos[V]):
                                 everything_ok = True
 
@@ -1075,6 +1095,79 @@ class Interface(Frame):
 
 
         self.update_row_display()
+
+    def _prepare_writable_project_copy(self, data_to_load, source_project_file):
+        source_folder = data_to_load.get("Folder")
+        folder_exists = source_folder and os.path.exists(source_folder)
+        folder_is_writable = folder_exists and UserMessages.directory_is_writable(source_folder)
+        project_is_writable = UserMessages.path_is_writable(source_project_file)
+
+        if project_is_writable and (not folder_exists or folder_is_writable):
+            return source_project_file, source_folder
+
+        target_project_file, target_folder = UserMessages.working_project_copy_paths(source_project_file)
+        os.makedirs(target_folder, exist_ok=True)
+        self._copy_project_runtime_data(source_folder, target_folder)
+
+        for video in data_to_load["Videos"]:
+            video.Folder = target_folder
+            video.File_name = self._remap_project_relative_path(video.File_name, source_folder, target_folder)
+            for fusion_index in range(len(video.Fusion)):
+                video.Fusion[fusion_index][1] = self._remap_project_relative_path(
+                    video.Fusion[fusion_index][1],
+                    source_folder,
+                    target_folder,
+                )
+
+        data_to_load["Folder"] = target_folder
+        with open(target_project_file, 'wb') as fp:
+            pickle.dump(data_to_load, fp)
+
+        compat.startup_debug(
+            "project relocated to writable working copy: {} -> {}; folder={} -> {}".format(
+                source_project_file,
+                target_project_file,
+                source_folder,
+                target_folder,
+            )
+        )
+        return target_project_file, target_folder
+
+    def _copy_project_runtime_data(self, source_folder, target_folder):
+        if not source_folder or not os.path.isdir(source_folder):
+            return
+
+        for source_name, target_name in [
+            ("converted_vids", "converted_vids"),
+            ("Coordinates", "Coordinates"),
+            ("coordinates", "Coordinates"),
+            ("corrected_coordinates", "corrected_coordinates"),
+            ("TMP_portion", "TMP_portion"),
+            ("tmp_portion", "TMP_portion"),
+        ]:
+            source_path = os.path.join(source_folder, source_name)
+            if not os.path.isdir(source_path):
+                continue
+
+            target_path = os.path.join(target_folder, target_name)
+            shutil.copytree(source_path, target_path, dirs_exist_ok=True)
+
+    def _remap_project_relative_path(self, original_path, source_folder, target_folder):
+        if not original_path or not source_folder or not target_folder:
+            return original_path
+
+        try:
+            absolute_path = os.path.abspath(original_path)
+            source_root = os.path.abspath(source_folder)
+            if os.path.commonpath([absolute_path, source_root]) != source_root:
+                return original_path
+            remapped_path = os.path.join(target_folder, os.path.relpath(absolute_path, source_root))
+        except ValueError:
+            return original_path
+
+        if os.path.exists(remapped_path):
+            return remapped_path
+        return original_path
 
 
     def update_row_display(self):
@@ -1143,6 +1236,7 @@ class Interface(Frame):
         try:
             self.file_to_save = filedialog.asksaveasfilename(defaultextension=".ata",
                                                              initialfile="Untitled_project.ata",
+                                                             initialdir=UserMessages.projects_dir_path(),
                                                              filetypes=(("AnimalTA", "*.ata"),))
 
             if len(self.file_to_save) > 0:
@@ -1467,7 +1561,7 @@ class Interface(Frame):
                 for root, _, files in os.walk(folder_imseq):
                     for filename in files:
                         filepath = os.path.join(root, filename)
-                        if os.path.isfile(filepath) and imghdr.what(filepath):
+                        if os.path.isfile(filepath) and os.path.splitext(filepath)[1].lower() in {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif', '.webp'}:
                             relative_path = os.path.relpath(filepath, folder_imseq)
                             image_files.append(relative_path)
 
@@ -1559,11 +1653,23 @@ class Interface(Frame):
         else:
             old_file_name = Vid.User_Name
 
-        old_coos_file = os.path.join(Vid.Folder, "Coordinates", old_file_name + "_Coordinates.csv")
-        old_corrected_coos_file = os.path.join(Vid.Folder, "corrected_coordinates", old_file_name + "_Corrected.csv")
+        old_coos_file = os.path.join(
+            UserMessages.coordinates_dir_path(Vid.Folder),
+            old_file_name + "_Coordinates.csv",
+        )
+        old_corrected_coos_file = os.path.join(
+            UserMessages.corrected_coordinates_dir_path(Vid.Folder),
+            old_file_name + "_Corrected.csv",
+        )
 
-        new_coos_file = os.path.join(Vid.Folder, "Coordinates", new_Vid.User_Name + "_Coordinates.csv")
-        new_corrected_coos_file = os.path.join(Vid.Folder, "corrected_coordinates", new_Vid.User_Name + "_Corrected.csv")
+        new_coos_file = os.path.join(
+            UserMessages.coordinates_dir_path(Vid.Folder, create=True),
+            new_Vid.User_Name + "_Coordinates.csv",
+        )
+        new_corrected_coos_file = os.path.join(
+            UserMessages.corrected_coordinates_dir_path(Vid.Folder, create=True),
+            new_Vid.User_Name + "_Corrected.csv",
+        )
 
         if os.path.isfile(old_coos_file):
             shutil.copy(old_coos_file, new_coos_file)
@@ -1587,9 +1693,11 @@ class Interface(Frame):
         else:# If not we activate and wait for a  second vidoe to be selected
             self.wait_for_vid = True
 
-    def remove_Fus(self, event):
+    def remove_Fus(self, event=None):
         #If the user clicks on anything else than a video or the concatenate button, we cancel the concatenation
-        event.widget.focus_set()
+        widget = getattr(event, "widget", None)
+        if hasattr(widget, "focus_set"):
+            widget.focus_set()
         if self.wait_for_vid:
             self.fus_video()
         self.update_selections()
@@ -1789,8 +1897,9 @@ class Interface(Frame):
                     self.Infos_track.set(self.Messages["Names9"] + ": " + NB_tar)
 
                 point_pos = self.selected_vid.Name.rfind(".")
-                file_tracked = os.path.join(self.selected_vid.Folder, "coordinates", self.selected_vid.Name[:point_pos] + "_Coordinates.csv")
-                file_trackedP = os.path.join(self.selected_vid.Folder, "coordinates", self.selected_vid.User_Name + "_Coordinates.csv")
+                coordinates_dir = UserMessages.coordinates_dir_path(self.selected_vid.Folder)
+                file_tracked = os.path.join(coordinates_dir, self.selected_vid.Name[:point_pos] + "_Coordinates.csv")
+                file_trackedP = os.path.join(coordinates_dir, self.selected_vid.User_Name + "_Coordinates.csv")
 
                 if not self.selected_vid.Tracked or not(os.path.isfile(file_tracked) or os.path.isfile(file_trackedP)):
                     self.bouton_check_track.config(state="disable", **Color_settings.My_colors.Frame_Base)
@@ -1803,8 +1912,9 @@ class Interface(Frame):
                     self.bouton_analyse_track.config(state="normal", activebackground=self.list_colors["Button_ready"], activeforeground=self.list_colors["Fg_Button_ready"], fg=self.list_colors["Fg_Button_ready"], bg=self.list_colors["Button_ready"])
                     #self.bouton_add_event.config(state="normal", activebackground="#ff8a33", bg="#ff8a33")
 
-                    file_tracked_Corr = os.path.join(self.selected_vid.Folder, "corrected_coordinates", self.selected_vid.Name[:point_pos] + "_Corrected.csv")
-                    file_trackedP_Coor = os.path.join(self.selected_vid.Folder, "corrected_coordinates", self.selected_vid.User_Name + "_Corrected.csv")
+                    corrected_dir = UserMessages.corrected_coordinates_dir_path(self.selected_vid.Folder)
+                    file_tracked_Corr = os.path.join(corrected_dir, self.selected_vid.Name[:point_pos] + "_Corrected.csv")
+                    file_trackedP_Coor = os.path.join(corrected_dir, self.selected_vid.User_Name + "_Corrected.csv")
 
                     if ( not (os.path.isfile(file_tracked_Corr) or os.path.isfile(file_trackedP_Coor))):
                         self.bouton_check_track.config(activebackground=self.list_colors["Button_ready"], activeforeground=self.list_colors["Fg_Button_ready"], fg=self.list_colors["Fg_Button_ready"], bg=self.list_colors["Button_ready"])

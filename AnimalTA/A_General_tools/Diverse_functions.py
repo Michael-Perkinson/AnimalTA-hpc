@@ -67,14 +67,17 @@ def low_priority(Low):
     else:
         isWindows = True
 
-    if isWindows and Low:
-        priority.nice(psutil.HIGH_PRIORITY_CLASS)
-    elif isWindows and not Low:
-        priority.nice(psutil.NORMAL_PRIORITY_CLASS)
-    elif Low:
-        priority.nice(10)
-    else:
-        priority.nice(0)
+    try:
+        if isWindows and Low:
+            priority.nice(psutil.HIGH_PRIORITY_CLASS)
+        elif isWindows and not Low:
+            priority.nice(psutil.NORMAL_PRIORITY_CLASS)
+        elif Low:
+            priority.nice(10)
+        else:
+            priority.nice(0)
+    except (psutil.AccessDenied, PermissionError):
+        pass
 """Demonstration of least-squares fitting of ellipses
     __author__ = "Ben Hammel, Nick Sullivan-Molina"
     __credits__ = ["Ben Hammel", "Nick Sullivan-Molina"]

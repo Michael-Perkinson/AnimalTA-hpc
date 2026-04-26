@@ -77,10 +77,15 @@ class table(Frame):
                 to_highlight.append([ID,12])
 
             point_pos = V.Name.rfind(".")
-            file_tracked_Corr = os.path.join(V.Folder, "corrected_coordinates",
-                                             V.Name[:point_pos] + "_Corrected.csv")
-            file_trackedP_Coor = os.path.join(V.Folder, "corrected_coordinates",
-                                              V.User_Name + "_Corrected.csv")
+            corrected_dir = UserMessages.corrected_coordinates_dir_path(V.Folder)
+            file_tracked_Corr = os.path.join(
+                corrected_dir,
+                V.Name[:point_pos] + "_Corrected.csv",
+            )
+            file_trackedP_Coor = os.path.join(
+                corrected_dir,
+                V.User_Name + "_Corrected.csv",
+            )
             corrected=os.path.isfile(file_tracked_Corr) or os.path.isfile(file_trackedP_Coor)
 
             if corrected:

@@ -26,7 +26,8 @@ class Background(Frame):
         if self.portion:#If you do a temporary background for a correction of a part of the video
             Grid.columnconfigure(self.parent, 0, weight=1)
             Grid.rowconfigure(self.parent, 0, weight=1)
-            self.parent.geometry("1200x750")
+            _win_h = max(600, min(750, self.parent.winfo_screenheight() - 80))
+            self.parent.geometry(f"1200x{_win_h}")
 
         # Messages importation
         self.Language = StringVar()
@@ -140,7 +141,7 @@ class Background(Frame):
 
 
 
-        self.Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+        self.Param_file = UserMessages.settings_file_path()
         with open(self.Param_file, 'rb') as fp:
             Params = pickle.load(fp)
         self.tool_size=Params["Back_tool"]

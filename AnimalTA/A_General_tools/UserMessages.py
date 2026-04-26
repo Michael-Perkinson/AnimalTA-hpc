@@ -1,16 +1,209 @@
 import sys
 import os
+import shutil
+import tempfile
 
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+
+def _base_resource_path(relative_path):
+    """Resolve a bundled resource path without applying writable overrides."""
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-
     return os.path.join(base_path, relative_path)
+
+
+def user_data_dir():
+    """Return the per-user writable data directory."""
+    candidates = []
+
+    override = os.environ.get("ANIMALTA_DATA_DIR")
+    if override:
+        candidates.append(override)
+
+    candidates.append(os.path.join(os.path.expanduser("~"), ".animalta"))
+    candidates.append(os.path.join(tempfile.gettempdir(), "animalta"))
+
+    for data_dir in candidates:
+        try:
+            os.makedirs(data_dir, exist_ok=True)
+            return data_dir
+        except OSError:
+            continue
+
+    raise OSError("AnimalTA could not create a writable data directory")
+
+
+def language_file_path():
+    """Return the writable language preference file, seeding it from the bundle."""
+    bundled_path = _base_resource_path(os.path.join("AnimalTA", "Files", "Language"))
+    for base_dir in [user_data_dir(), os.path.join(tempfile.gettempdir(), "animalta")]:
+        try:
+            os.makedirs(base_dir, exist_ok=True)
+            path = os.path.join(base_dir, "Language")
+            if not os.path.exists(path) and os.path.exists(bundled_path):
+                shutil.copyfile(bundled_path, path)
+            return path
+        except OSError:
+            continue
+
+    raise OSError("AnimalTA could not create a writable language file")
+
+
+def autosave_dir_path():
+    """Return the writable autosave directory."""
+    for base_dir in [user_data_dir(), os.path.join(tempfile.gettempdir(), "animalta")]:
+        try:
+            os.makedirs(base_dir, exist_ok=True)
+            path = os.path.join(base_dir, "Autosave")
+            os.makedirs(path, exist_ok=True)
+            return path
+        except OSError:
+            continue
+
+    raise OSError("AnimalTA could not create a writable autosave directory")
+
+
+def projects_dir_path():
+    """Return the default writable directory for new projects."""
+    for base_dir in [user_data_dir(), os.path.join(tempfile.gettempdir(), "animalta")]:
+        try:
+            os.makedirs(base_dir, exist_ok=True)
+            path = os.path.join(base_dir, "Projects")
+            os.makedirs(path, exist_ok=True)
+            return path
+        except OSError:
+            continue
+
+    raise OSError("AnimalTA could not create a writable projects directory")
+
+
+def directory_is_writable(path):
+    """Return whether a directory exists and accepts file creation."""
+    if not path or not os.path.isdir(path):
+        return False
+
+    probe_path = None
+    try:
+        fd, probe_path = tempfile.mkstemp(prefix=".animalta_write_test_", dir=path)
+        os.close(fd)
+        return True
+    except OSError:
+        return False
+    finally:
+        if probe_path and os.path.exists(probe_path):
+            try:
+                os.remove(probe_path)
+            except OSError:
+                pass
+
+
+def path_is_writable(path):
+    """Return whether a file path can be updated or created."""
+    if not path:
+        return False
+
+    if os.path.exists(path):
+        return os.access(path, os.W_OK)
+
+    parent = os.path.dirname(path) or os.curdir
+    return directory_is_writable(parent)
+
+
+def working_project_copy_paths(project_file_path):
+    """Reserve a writable per-user location for a project working copy."""
+    project_root = projects_dir_path()
+    project_name = os.path.splitext(os.path.basename(project_file_path))[0] or "Imported_project"
+    if not project_name.endswith("_working_copy"):
+        project_name = project_name + "_working_copy"
+
+    candidate_name = project_name
+    suffix = 2
+    while True:
+        project_file = os.path.join(project_root, candidate_name + ".ata")
+        project_folder = os.path.join(project_root, "Project_folder_" + candidate_name)
+        if not os.path.exists(project_file) and not os.path.exists(project_folder):
+            return project_file, project_folder
+        candidate_name = "{}_{}".format(project_name, suffix)
+        suffix += 1
+
+
+def project_subdir_path(folder, preferred_name, *fallback_names, create=False):
+    """Resolve a project subdirectory while tolerating case differences across platforms."""
+    for name in (preferred_name,) + fallback_names:
+        path = os.path.join(folder, name)
+        if os.path.isdir(path):
+            return path
+
+    path = os.path.join(folder, preferred_name)
+    if create:
+        os.makedirs(path, exist_ok=True)
+    return path
+
+
+def coordinates_dir_path(folder, create=False):
+    """Return the tracking coordinates directory for a project."""
+    return project_subdir_path(folder, "Coordinates", "coordinates", create=create)
+
+
+def corrected_coordinates_dir_path(folder, create=False):
+    """Return the corrected tracking coordinates directory for a project."""
+    return project_subdir_path(folder, "corrected_coordinates", create=create)
+
+
+def tmp_portion_dir_path(folder, create=False):
+    """Return the temporary tracking rerun directory for a project."""
+    return project_subdir_path(folder, "TMP_portion", "tmp_portion", create=create)
+
+
+def converted_videos_dir_path(folder, create=False):
+    """Return the converted videos directory for a project."""
+    return project_subdir_path(folder, "converted_vids", create=create)
+
+
+def _writable_resource_path(relative_path):
+    normalized = os.path.normpath(relative_path)
+    files_root = os.path.normpath(os.path.join("AnimalTA", "Files"))
+    autosave_root = os.path.normpath(os.path.join(files_root, "Autosave"))
+
+    if normalized == os.path.normpath(os.path.join(files_root, "Language")):
+        return language_file_path()
+
+    if normalized == autosave_root:
+        return autosave_dir_path()
+
+    autosave_prefix = autosave_root + os.sep
+    if normalized.startswith(autosave_prefix):
+        rel_path = os.path.relpath(normalized, autosave_root)
+        target = os.path.join(autosave_dir_path(), rel_path)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        return target
+
+    if normalized in {
+        os.path.normpath(os.path.join(files_root, "Last_downloaded")),
+        os.path.normpath(os.path.join(files_root, "last_update.exe")),
+        os.path.normpath(os.path.join(files_root, "last_update.crdownload")),
+    }:
+        return os.path.join(user_data_dir(), os.path.basename(normalized))
+
+    return None
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    if os.path.isabs(relative_path):
+        return relative_path
+
+    writable_path = _writable_resource_path(relative_path)
+    if writable_path is not None:
+        return writable_path
+
+    return _base_resource_path(relative_path)
+
+def settings_file_path():
+    """ Return a writable path for the Settings file (works inside read-only containers). """
+    return os.path.join(user_data_dir(), "Settings")
 
 ###General comments for translators:
 #Please only translate sentences in green (between "")

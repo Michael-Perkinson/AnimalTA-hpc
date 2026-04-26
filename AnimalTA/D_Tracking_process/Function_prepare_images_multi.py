@@ -3,14 +3,16 @@ import time
 import multiprocessing
 import cv2
 import numpy as np
-from AnimalTA.A_General_tools import Class_stabilise, UserMessages
-from multiprocessing import shared_memory, Lock
+from AnimalTA.A_General_tools import Class_stabilise, UserMessages, image_utils
+from multiprocessing import Lock
 import os
+
 
 def send_cap_to(capture, capture_pos, frame):
     while capture_pos<=frame:
         capture_pos+=1
-        capture.grab()
+        if not capture.grab():
+            return None
     return(capture_pos)
 
 
@@ -57,9 +59,10 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
             try:
                 if Vid.type=="Video":
                     capture = cv2.VideoCapture(Vid.Fusion[Which_part][1])
+                    if not capture.isOpened():
+                        raise RuntimeError("OpenCV could not open {}".format(Vid.Fusion[Which_part][1]))
             except Exception as e:
-                print(f"Error initializing video reader: {e}")
-                return
+                raise RuntimeError("Error initializing video reader: {}".format(e))
             first=False
 
             # We first look at what is the best strategy (doing all intermediate frames or jumping from one to the other)
@@ -80,9 +83,15 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
 
             if Vid.type == "Video":
                 cap_pos = send_cap_to(capture, cap_pos, frame - Vid.Fusion[Which_part][0])  # Set starting frame
+                if cap_pos is None:
+                    raise RuntimeError("OpenCV could not grab frame {} from {}".format(frame, Vid.Fusion[Which_part][1]))
                 ret, image = capture.retrieve()
+                if not ret or image is None:
+                    raise RuntimeError("OpenCV could not retrieve frame {} from {}".format(frame, Vid.Fusion[Which_part][1]))
             else:
                 image=cv2.imread(os.path.join(Vid.Fusion[Which_part][1], Vid.img_list[frame - Vid.Fusion[Which_part][0]]))
+                if image is None:
+                    raise RuntimeError("OpenCV could not read image frame {}".format(frame))
 
             image=cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
@@ -145,9 +154,7 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
                     img = cv2.subtract(img, TMP_back)
 
                 if Vid.Track[1][10][2] == 1:
-                    img = img.astype(np.uint16)
-                    img = (img * 255) // TMP_back
-                    img = img.astype(np.uint8)
+                    img = image_utils.apply_relative_background(img, TMP_back)
 
                 if Vid.Track[1][10][0] == 1:
                     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)

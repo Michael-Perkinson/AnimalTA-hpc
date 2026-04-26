@@ -5,11 +5,14 @@
 
 # Set display for VNC session
 export DISPLAY=:<%= display %>
+export ANIMALTA_DATA_DIR="/home/$USER/.animalta"
+mkdir -p "$ANIMALTA_DATA_DIR/Projects"
 
 # Run AnimalTA in the container
 # CHANGEME: update path to .sif file on your cluster
 apptainer exec \
     --bind /home/$USER:/home/$USER \
     --bind /tmp:/tmp \
+    --env ANIMALTA_DATA_DIR="$ANIMALTA_DATA_DIR" \
     /path/to/animalta.sif \
     python3 /opt/animalta/cli.py

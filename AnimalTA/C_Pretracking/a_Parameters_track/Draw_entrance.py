@@ -18,7 +18,8 @@ class Draw_ent(Frame):
         self.scale=scale
         self.boss=boss#Who is the class calling this one
         self.parent=parent
-        self.parent.geometry("1200x750")
+        _win_h = max(600, min(750, self.parent.winfo_screenheight() - 80))
+        self.parent.geometry(f"1200x{_win_h}")
         self.image_to_show=self.img.copy()
         self.last_image_to_show=self.image_to_show.copy()
         self.ents=Entrances
@@ -338,5 +339,9 @@ class Draw_ent(Frame):
 
     def stay_on_top(self):
         # We want this window to remain on the top of the others
-        self.parent.lift()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                self.parent.lift()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass

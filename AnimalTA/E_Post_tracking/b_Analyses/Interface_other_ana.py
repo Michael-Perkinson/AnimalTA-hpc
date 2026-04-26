@@ -1,5 +1,6 @@
 from tkinter import *
 from tkinter import ttk
+from AnimalTA import compat
 from AnimalTA.A_General_tools import Function_draw_arenas, UserMessages, User_help, Class_loading_Frame, Color_settings, Interface_extend, Small_info, Diverse_functions
 from AnimalTA.E_Post_tracking.b_Analyses import Body_part_functions
 import numpy as np
@@ -13,6 +14,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from tkinter import filedialog
 from tkinter import ttk
+from AnimalTA import compat
 
 
 """This script codes four classes inherited from Frame, each one associated with one kind of data analyses. 
@@ -33,7 +35,7 @@ class Details_other(Frame):
         self.main=main
         self.grid(sticky="nsew")
         self.ready=False
-        self.parent.attributes('-toolwindow', True)
+        compat.set_toolwindow(self.parent)
         self.Vid=Vid
 
         Grid.columnconfigure(self.parent, 0, weight=1)
@@ -258,7 +260,12 @@ class Details_other(Frame):
 
     def stay_on_top(self):
         # We want this window to remain on the top of the others
-        if self.ready:
-            self.parent.lift()
-            self.add_cur_loc()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                if self.ready:
+                    self.parent.lift()
+                    self.add_cur_loc()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass
+

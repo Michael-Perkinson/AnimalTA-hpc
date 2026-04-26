@@ -2,9 +2,8 @@ from tkinter import *
 from tkinter import ttk
 import os
 from AnimalTA.A_General_tools import UserMessages, Color_settings
-import ntpath
+from AnimalTA import compat
 from tkinter import filedialog
-import pyautogui
 
 def check_vid(Vid):
     if Vid.type=="Video":
@@ -127,7 +126,7 @@ class Change_path(Frame):
                 self.info = Toplevel(self.parent)
                 self.info.wm_overrideredirect(1)
 
-                pos=pyautogui.position()
+                pos = compat.get_pointer_position(self.parent)
                 new_pos = (pos[0] + 50, pos[1])
                 self.info.wm_geometry("+%d+%d" % new_pos)
 
@@ -162,11 +161,11 @@ class Change_path(Frame):
         for V in list_item:
             if V < self.Liste.size()-1:
                 if self.list_vid_minus[V].type=="Video":
-                    if os.path.isfile(new_dir+"/"+ntpath.basename(self.list_vid_minus[V].File_name)):
-                        self.list_vid_minus[V].File_name=new_dir+"/"+ntpath.basename(self.list_vid_minus[V].File_name)
+                    if os.path.isfile(new_dir+"/"+os.path.basename(self.list_vid_minus[V].File_name)):
+                        self.list_vid_minus[V].File_name=new_dir+"/"+os.path.basename(self.list_vid_minus[V].File_name)
                         for F in range(len(self.list_vid_minus[V].Fusion)):
-                            if os.path.isfile(new_dir + "/" + ntpath.basename(self.list_vid_minus[V].Fusion[F][1])):
-                                self.list_vid_minus[V].Fusion[F][1]= new_dir +"/" + ntpath.basename(self.list_vid_minus[V].Fusion[F][1])
+                            if os.path.isfile(new_dir + "/" + os.path.basename(self.list_vid_minus[V].Fusion[F][1])):
+                                self.list_vid_minus[V].Fusion[F][1]= new_dir +"/" + os.path.basename(self.list_vid_minus[V].Fusion[F][1])
                 else:
                     if os.path.isdir(new_dir):
                         self.list_vid_minus[V].File_name=new_dir

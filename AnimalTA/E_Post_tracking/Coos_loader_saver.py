@@ -2,7 +2,7 @@ import os
 import csv
 import numpy as np
 from tkinter import *
-from AnimalTA.A_General_tools import Class_loading_Frame
+from AnimalTA.A_General_tools import Class_loading_Frame, UserMessages
 import time
 
 def load_coos(Vid, TMP=False, location=None):
@@ -18,10 +18,19 @@ def load_coos(Vid, TMP=False, location=None):
         file_name = Vid.User_Name
 
     if not TMP:
-        file_tracked_not_corr = os.path.join(Vid.Folder, "coordinates", file_name + "_Coordinates.csv")
-        file_tracked_corr = os.path.join(Vid.Folder, "corrected_coordinates", file_name + "_Corrected.csv")
+        file_tracked_not_corr = os.path.join(
+            UserMessages.coordinates_dir_path(Vid.Folder),
+            file_name + "_Coordinates.csv",
+        )
+        file_tracked_corr = os.path.join(
+            UserMessages.corrected_coordinates_dir_path(Vid.Folder),
+            file_name + "_Corrected.csv",
+        )
     else:
-        file_tracked_corr = os.path.join(Vid.Folder, "TMP_portion", file_name + "_TMP_portion_Coordinates.csv")
+        file_tracked_corr = os.path.join(
+            UserMessages.tmp_portion_dir_path(Vid.Folder),
+            file_name + "_TMP_portion_Coordinates.csv",
+        )
 
     if os.path.isfile(file_tracked_corr):
         path = file_tracked_corr
@@ -52,13 +61,15 @@ def save(Vid, Coos, TMP=False, location=None):
         file_name = Vid.User_Name
 
     if not TMP:
-        if not os.path.isdir(os.path.join(Vid.Folder, "corrected_coordinates")):
-            os.makedirs(os.path.join(Vid.Folder, "corrected_coordinates"))
-        path = os.path.join(Vid.Folder, "corrected_coordinates", file_name + "_Corrected.csv")
+        path = os.path.join(
+            UserMessages.corrected_coordinates_dir_path(Vid.Folder, create=True),
+            file_name + "_Corrected.csv",
+        )
     else:
-        if not os.path.isdir(os.path.join(Vid.Folder, "TMP_portion")):
-            os.makedirs(os.path.join(Vid.Folder , "TMP_portion"))
-        path = os.path.join(Vid.Folder, "TMP_portion", file_name + "_TMP_portion_Coordinates.csv")
+        path = os.path.join(
+            UserMessages.tmp_portion_dir_path(Vid.Folder, create=True),
+            file_name + "_TMP_portion_Coordinates.csv",
+        )
 
     if os.path.isfile(path):
         path = path

@@ -1,4 +1,5 @@
 from tkinter import *
+from AnimalTA import compat
 from AnimalTA.A_General_tools import UserMessages, Color_settings
 import math
 
@@ -21,7 +22,7 @@ class Ask(Frame):
         self.UnitsB = DoubleVar()
         self.UnitsB.set(round(self.length-(self.Ratio.get()*self.length),3))#The position in units from the other side of the border (i.e. if self.Units=1/3, self.UnitsB=2/3)
         self.binding=self.bind_all("<Return>",self.validate, add=True)
-        self.parent.attributes('-toolwindow', True)
+        compat.set_toolwindow(self.parent)
         self.grab_set()
 
         #Importation of messages
@@ -92,8 +93,12 @@ class Ask(Frame):
 
     def stay_on_top(self):
         #This function ensure that this window will always be in front of the others
-        self.parent.lift()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                self.parent.lift()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass
 
     def validate(self, *args):
         #Save the user's choice

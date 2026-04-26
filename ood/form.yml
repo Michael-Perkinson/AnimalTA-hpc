@@ -1,5 +1,5 @@
 ---
-cluster: "aotearoa"  # CHANGEME: match your cluster name
+cluster: "CHANGEME"  # set to your cluster name
 attributes:
   hours:
     widget: "number_field"

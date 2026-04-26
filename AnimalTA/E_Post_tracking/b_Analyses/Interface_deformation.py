@@ -21,7 +21,8 @@ class Deformation(Frame):
         if self.Vid.Stab[0]:
             self.prev_pts = self.Vid.Stab[1]
 
-        self.parent.geometry("1200x750")
+        _win_h = max(600, min(750, self.parent.winfo_screenheight() - 80))
+        self.parent.geometry(f"1200x{_win_h}")
 
         self.or_positions=self.Vid.Analyses[4][1]#List of points used as reference
         self.corr_positions = self.Vid.Analyses[4][2]#List of points with corrected coordinates

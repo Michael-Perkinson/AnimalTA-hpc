@@ -58,7 +58,7 @@ class Lists(Frame):
         self.Liste_objects.grid(row=2, column=0, sticky="nsew")
         self.Liste_objects.bind('<<ListboxSelect>>', self.check_button)
 
-        Arrow=Label(self, text=u'\u279F', font=('Helvatical bold',20), **Color_settings.My_colors.Label_Base)
+        Arrow=Label(self, text=u'\u279F', font=('Helvetica bold',20), **Color_settings.My_colors.Label_Base)
         Arrow.grid(row=2,column=2)
 
         # Listbox of other arenas
@@ -262,7 +262,7 @@ class Lists(Frame):
         self.Canvas_shaow_Ar.config(height=img.shape[0], width=img.shape[1])
 
     def stop_show_Arenas(self, event):
-        cv2.destroyAllWindows()
+        return
 
     def remove_sel(self,*arg):
         #Avoid that user can select a vido.
@@ -288,5 +288,9 @@ class Lists(Frame):
 
     def stay_on_top(self):
         #Maintain this window on top
-        self.parent.lift()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                self.parent.lift()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass

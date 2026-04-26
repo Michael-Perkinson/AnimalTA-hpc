@@ -6,6 +6,7 @@ import numpy as np
 import os
 from tkinter import *
 import threading
+import time
 import queue
 import pickle
 import sys
@@ -37,7 +38,7 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     f.close()
     Messages = UserMessages.Mess[Language.get()]
 
-    Param_file = UserMessages.resource_path(os.path.join("AnimalTA", "Files", "Settings"))
+    Param_file = UserMessages.settings_file_path()
     with open(Param_file, 'rb') as fp:
         Params = pickle.load(fp)
         use_Kalman=Params["Use_Kalman"]
@@ -53,17 +54,10 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     else:
         file_name = Vid.User_Name
 
-    if not portion:
-        if not os.path.isdir(os.path.join(folder,"coordinates")):
-            os.makedirs(os.path.join(folder, "coordinates"))
-    else:
-        if not os.path.isdir(os.path.join(folder,"TMP_portion")):
-            os.makedirs(os.path.join(folder,"TMP_portion"))
-
     if portion:
-        To_save = os.path.join(folder, "TMP_portion", file_name + "_TMP_portion_Coordinates.csv")
+        To_save = os.path.join(UserMessages.tmp_portion_dir_path(folder, create=True), file_name + "_TMP_portion_Coordinates.csv")
     else:
-        To_save = os.path.join(folder, "Coordinates", file_name + "_Coordinates.csv")
+        To_save = os.path.join(UserMessages.coordinates_dir_path(folder, create=True), file_name + "_Coordinates.csv")
 
     # if the user choose to reduce the frame rate.
     one_every = Vid.Frame_rate[0] / Vid.Frame_rate[1]
@@ -141,6 +135,7 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
         while Th_extract_cnts.is_alive() or Th_associate_cnts.is_alive():
             parent.timer=(AD.get()-start)/(end + one_every - start)
             parent.show_load()
+            time.sleep(0.05)
 
             overload = security_settings_track.check_memory_overload()#Avoid memory leak problems
             if overload==1:

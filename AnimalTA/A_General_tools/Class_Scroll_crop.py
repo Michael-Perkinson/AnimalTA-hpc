@@ -44,17 +44,36 @@ class Pers_Scroll(Canvas):
             self.bind("<Button-1>", self.activate_position)#Change the current frame
             self.bind("<B1-Motion>", self.move_position)#Change the current frame
 
+    def _widget_exists(self, widget):
+        if widget is None:
+            return False
+        try:
+            return bool(widget.winfo_exists())
+        except (AttributeError, TclError):
+            return False
+
+    def _reader_is_ready(self):
+        return (
+            self._widget_exists(self)
+            and self._widget_exists(self.parent)
+            and getattr(self.Top, "closed", False) is False
+        )
+
     def close_N_destroy(self):
         '''
         Destroy the Scrollbar, this is called when the Video Reader is destroyed
         '''
+        if not self._widget_exists(self):
+            return
         self.delete("all")
-        self.unbind_all("<Motion>")
-        self.unbind_all("<Button-1>")
-        self.unbind_all("<B1-Motion>")
+        self.unbind("<Motion>")
+        self.unbind("<Button-1>")
+        self.unbind("<B1-Motion>")
 
     def refresh(self, *args):
         #Draw/Redraw the timeline, each time something is modified or that the containing widget size changes, the timeline is redraw.
+        if not self._reader_is_ready():
+            return
         width=self.parent.winfo_width()
         largscroll = width - 60
         largscan = width - 10
@@ -89,6 +108,8 @@ class Pers_Scroll(Canvas):
         '''
         Draw a little rectangle and show text under the mouse cursor to indicates which of the frame would be selected if the user click.
         '''
+        if not self._reader_is_ready():
+            return
         width=self.parent.winfo_width()
         largscroll = width - 60
         if event.x>self.decalage and event.x<largscroll+self.decalage and event.y>0 and event.y<20:
@@ -102,6 +123,8 @@ class Pers_Scroll(Canvas):
         When timeline is clicked
         Change the current frame displayed on the Video Reader.
         '''
+        if not self._reader_is_ready():
+            return
         width=self.parent.winfo_width()
         largscroll = width - 60
         if event.x>self.decalage and event.x<largscroll+self.decalage and event.y>0 and event.y<20:
@@ -114,6 +137,8 @@ class Pers_Scroll(Canvas):
         When the user B1-Motion on the timeline.
         Change the current frame displayed on the Video Reader.
         '''
+        if not self._reader_is_ready():
+            return
         width=self.parent.winfo_width()
         largscroll = width - 60
         if event.x>self.decalage and event.x<(largscroll+self.decalage):

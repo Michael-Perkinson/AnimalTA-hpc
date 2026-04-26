@@ -1,5 +1,4 @@
 import numpy as np
-import ntpath
 from AnimalTA.A_General_tools import UserMessages, Class_stabilise, Function_draw_arenas as Dr, Message_simple_question as MsgBox, Diverse_functions
 import os
 import cv2
@@ -22,7 +21,7 @@ class Video:
         self.img_list=img_list#The list of all the frames if it is an image list
         self.File_name=File_name #The name and path to the video file
         self.Folder=Folder #The folder in which the project is stored
-        self.Name = ntpath.basename(self.File_name)#The name of the video
+        self.Name = os.path.basename(self.File_name)#The name of the video
         if User_Name is None:
             self.User_Name=self.Name
         else:
@@ -90,8 +89,14 @@ class Video:
         else:
             file_name = self.User_Name
 
-        file_tracked_not_corr = os.path.join(self.Folder, "coordinates", file_name + "_Coordinates.csv")
-        file_tracked_corr = os.path.join(self.Folder, "corrected_coordinates", file_name + "_Corrected.csv")
+        file_tracked_not_corr = os.path.join(
+            UserMessages.coordinates_dir_path(self.Folder),
+            file_name + "_Coordinates.csv",
+        )
+        file_tracked_corr = os.path.join(
+            UserMessages.corrected_coordinates_dir_path(self.Folder),
+            file_name + "_Corrected.csv",
+        )
 
         prev_track=self.Tracked
 
@@ -117,8 +122,14 @@ class Video:
         # Change_coordinates names
         while True:
             try:
-                files_coos = os.path.join(self.Folder, "coordinates", file_name + "_Coordinates.csv")
-                files_coos_corr = os.path.join(self.Folder, "corrected_coordinates", file_name + "_Corrected.csv")
+                files_coos = os.path.join(
+                    UserMessages.coordinates_dir_path(self.Folder),
+                    file_name + "_Coordinates.csv",
+                )
+                files_coos_corr = os.path.join(
+                    UserMessages.corrected_coordinates_dir_path(self.Folder),
+                    file_name + "_Corrected.csv",
+                )
 
                 if os.path.isfile(files_coos):#We first ensure that both files can be modified before doing the modification
                     os.rename(files_coos, files_coos)
@@ -126,9 +137,15 @@ class Video:
                     os.rename(files_coos_corr,files_coos_corr)
 
                 if os.path.isfile(files_coos):
-                    os.rename(files_coos, os.path.join(self.Folder, "coordinates", new_name + "_Coordinates.csv"))
+                    os.rename(
+                        files_coos,
+                        os.path.join(UserMessages.coordinates_dir_path(self.Folder, create=True), new_name + "_Coordinates.csv"),
+                    )
                 if os.path.isfile(files_coos_corr):
-                    os.rename(files_coos_corr, os.path.join(self.Folder, "corrected_coordinates", new_name + "_Corrected.csv"))
+                    os.rename(
+                        files_coos_corr,
+                        os.path.join(UserMessages.corrected_coordinates_dir_path(self.Folder, create=True), new_name + "_Corrected.csv"),
+                    )
 
                 return True
 
@@ -160,8 +177,8 @@ class Video:
 
         # Suppress coordinates from tracking
         files_tracked = [
-            os.path.join(self.Folder, "coordinates", file_name + "_Coordinates.csv"),
-            os.path.join(self.Folder, "corrected_coordinates", file_name + "_Corrected.csv")
+            os.path.join(UserMessages.coordinates_dir_path(self.Folder), file_name + "_Coordinates.csv"),
+            os.path.join(UserMessages.corrected_coordinates_dir_path(self.Folder), file_name + "_Corrected.csv")
         ]
 
 

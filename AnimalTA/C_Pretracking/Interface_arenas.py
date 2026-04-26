@@ -31,7 +31,8 @@ class Mask(Frame):
         if self.portion:#If we are just changing the arenas for a part of the video (during corrections)
             Grid.columnconfigure(self.parent, 0, weight=1)
             Grid.rowconfigure(self.parent, 0, weight=1)
-            self.parent.geometry("1200x750")
+            _win_h = max(600, min(750, self.parent.winfo_screenheight() - 80))
+            self.parent.geometry(f"1200x{_win_h}")
 
         #Import messages
         self.Vid = Video_file

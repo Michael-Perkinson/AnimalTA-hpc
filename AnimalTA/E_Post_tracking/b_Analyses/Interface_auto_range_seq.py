@@ -187,5 +187,9 @@ class Lists(Frame):
 
     def stay_on_top(self):
         #Maintain this window on top
-        self.parent.lift()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                self.parent.lift()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass

@@ -36,9 +36,12 @@ def open_heatmap(master, Vid, selected, Duration, heatmap_raw, Vid_Lecteur):
 
     def stay_on_top():
         # Maintain this window on top
-        if stay_top_heat:
-            newWindow.lift()
-            newWindow.after(50, stay_on_top)
+        try:
+            if stay_top_heat and newWindow.winfo_exists():
+                newWindow.lift()
+                newWindow.after(50, stay_on_top)
+        except Exception:
+            pass
 
     stay_top_heat = True
 

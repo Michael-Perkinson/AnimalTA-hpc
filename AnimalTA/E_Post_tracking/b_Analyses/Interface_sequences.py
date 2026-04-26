@@ -1,5 +1,6 @@
 from tkinter import *
 from tkinter import ttk
+from AnimalTA import compat
 from AnimalTA.A_General_tools import Diverse_functions, UserMessages, User_help, Class_Lecteur, Function_draw_arenas, Class_loading_Frame, Color_settings, Message_simple_question as MsgBox
 from AnimalTA.E_Post_tracking import Coos_loader_saver as CoosLS
 from AnimalTA.E_Post_tracking.b_Analyses import Interface_extend_seqs, Functions_Analyses_Speed, Functions_deformation, Interface_auto_range_seq
@@ -328,7 +329,7 @@ class Add_sequences(Frame):
         Grid.columnconfigure(self.parent, 0, weight=1)  ########NEW
         Grid.rowconfigure(self.parent, 0, weight=1)  ########NEW
 
-        self.parent.attributes('-toolwindow', True)
+        compat.set_toolwindow(self.parent)
 
         self.relative_explo=[]
 
@@ -810,9 +811,13 @@ class Add_sequences(Frame):
 
     def stay_on_top(self):
         #We want the parent windows to always remain at the top.
-        if self.ready:
-            self.parent.lift()
-        self.parent.after(50, self.stay_on_top)
+        try:
+            if self.parent.winfo_exists():
+                if self.ready:
+                    self.parent.lift()
+                self.parent.after(50, self.stay_on_top)
+        except Exception:
+            pass
 
 
     def modif_image(self, img=[], aff=False, **kwargs):
@@ -886,7 +891,7 @@ class Sequence(Frame):
 
         self.column_add=0
         if not to_keep:
-            Lab_arrow=Label(self, text="↳",**Color_settings.My_colors.Label_Base, width=10)
+            Lab_arrow=Label(self, text="â†³",**Color_settings.My_colors.Label_Base, width=10)
             Lab_arrow.grid(row=0,column=0,rowspan=2)
             Lab_arrow.bind("<FocusIn>",self.show_seq)
             Lab_arrow.bind("<Button>", self.show_seq)
@@ -953,7 +958,7 @@ class Sequence(Frame):
             Rem_Button=Button(self, text=self.Messages["Analyses_details_sp8"], command=self.terminate, **Color_settings.My_colors.Button_Base)
             Rem_Button.config(background=Color_settings.My_colors.list_colors["Danger"], fg=Color_settings.My_colors.list_colors["Fg_Danger"])
             Rem_Button.grid(row=1,column=0+self.column_add,sticky="w")
-        self.warn_glob=Label(self, text="⚠", fg="red", font='Helvetica 22 bold')
+        self.warn_glob=Label(self, text="âš ", fg="red", font='Helvetica 22 bold')
 
 
         #Beginning of the sequence
@@ -963,16 +968,16 @@ class Sequence(Frame):
         else:
             list_possibilities_beg = dict(Limits=self.Messages["Sequences_Begin"], Time=self.Messages["Sequences_Time"],Exploration=self.Messages["Sequences_Explo"])#, Movement="Movement"
             list_possibilities_end = dict(Limits=self.Messages["Sequences_End"], Time=self.Messages["Sequences_Time"], Exploration=self.Messages["Sequences_Explo"])#, Movement="Movement"
-        # Exploration: avant/après pourcentage de zone totale explorée
-        # pourcentage d'un element exploré + ajouter infos dans les résultats en général.
+        # Exploration: avant/aprÃ¨s pourcentage de zone totale explorÃ©e
+        # pourcentage d'un element explorÃ© + ajouter infos dans les rÃ©sultats en gÃ©nÃ©ral.
 
         # Social: premier/dernier contact avec ind X
-        # première/dernière fois avec au moins X voisins
-        # première / dernière fois sans voisins
+        # premiÃ¨re/derniÃ¨re fois avec au moins X voisins
+        # premiÃ¨re / derniÃ¨re fois sans voisins
 
         # Comportement?
-        # premier évènement observé
-        # dernier évènement observé
+        # premier Ã©vÃ¨nement observÃ©
+        # dernier Ã©vÃ¨nement observÃ©
         #sequence comportementale
 
         self.type_start = StringVar()
@@ -1113,7 +1118,7 @@ class Sequence(Frame):
             Opt2.config(**Color_settings.My_colors.Button_Base)
             Opt2.grid(row=0, column=4, sticky="nsew")
 
-            Lab3=Label(self.TxtFrame_deb, text="nº", **Color_settings.My_colors.Label_Base)
+            Lab3=Label(self.TxtFrame_deb, text="nÂº", **Color_settings.My_colors.Label_Base)
             Lab3.grid(row=0,column=5, sticky="nsew")
 
             Ent2=Entry(self.TxtFrame_deb, textvariable=self.value_start5, width=3, validate='all', validatecommand=(check_num, '%P'), **Color_settings.My_colors.Entry_Base)
@@ -1183,7 +1188,7 @@ class Sequence(Frame):
             Opt4.config(**Color_settings.My_colors.Button_Base)
             Opt4.grid(row=0, column=4, sticky="nsew")
 
-            Lab5=Label(self.TxtFrame_end, text="nº", **Color_settings.My_colors.Label_Base)
+            Lab5=Label(self.TxtFrame_end, text="nÂº", **Color_settings.My_colors.Label_Base)
             Lab5.grid(row=0,column=5, sticky="nsew")
 
             Ent4=Entry(self.TxtFrame_end, textvariable=self.value_end5, width=3, validate='all', validatecommand=(check_num, '%P'), **Color_settings.My_colors.Entry_Base)
@@ -1214,9 +1219,9 @@ class Sequence(Frame):
         self.trace_start_explo=self.value_start_explo.trace("w", lambda *args: self.change_val(*args, by_key=True))
         self.trace_end_explo = self.value_end_explo.trace("w", lambda *args: self.change_val(*args, by_key=True))
 
-        self.warn_deb=Label(self.TxtFrame_deb, text="⚠", font='Helvetica 18 bold', **Color_settings.My_colors.Label_Base)
+        self.warn_deb=Label(self.TxtFrame_deb, text="âš ", font='Helvetica 18 bold', **Color_settings.My_colors.Label_Base)
         self.warn_deb.config(fg=Color_settings.My_colors.list_colors["Danger"])
-        self.warn_end = Label(self.TxtFrame_end, text="⚠", font='Helvetica 18 bold', **Color_settings.My_colors.Label_Base)
+        self.warn_end = Label(self.TxtFrame_end, text="âš ", font='Helvetica 18 bold', **Color_settings.My_colors.Label_Base)
         self.warn_end.config(fg=Color_settings.My_colors.list_colors["Danger"])
 
         self.bind("<FocusIn>",self.show_seq)
@@ -1386,4 +1391,5 @@ class Sequence(Frame):
             self.explo_ready=True
             self.test_explo_running=False
             self.change_val(var)
+
 
