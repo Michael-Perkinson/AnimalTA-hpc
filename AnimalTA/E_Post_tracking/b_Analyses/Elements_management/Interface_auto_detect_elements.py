@@ -20,5 +20,3 @@ class Auto_detect(Frame):
         self.possible_cols[1].append(new_vals[:, 1])
         self.possible_cols[2].append(new_vals[:, 2])
 
-        print(np.min(self.possible_cols[0]))
-        print(np.max(self.possible_cols[0]))

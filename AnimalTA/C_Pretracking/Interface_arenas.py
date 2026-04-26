@@ -279,7 +279,6 @@ class Mask(Frame):
 
 
             else:
-                print("Cancel")
                 self.holder_opt.set("More options")  # CTXT
 
 

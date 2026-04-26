@@ -157,6 +157,8 @@ class Change_path(Frame):
 
     def change_path(self):
         new_dir=filedialog.askdirectory()
+        if not new_dir:
+            return
         list_item = self.Liste.curselection()
         for V in list_item:
             if V < self.Liste.size()-1:

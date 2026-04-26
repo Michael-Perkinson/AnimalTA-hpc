@@ -748,6 +748,8 @@ class Interface(Frame):
             if file==None:#If we open a new project, we beginn from
                 if new_file==None:
                     self.file_to_open = filedialog.askopenfilename(filetypes=(("AnimalTA", "*.ata"),))
+                    if not self.file_to_open:
+                        return
                 else:
                     self.file_to_open=new_file
 
@@ -801,6 +803,8 @@ class Interface(Frame):
 
                 if answer==0:
                     self.folder=filedialog.askdirectory()
+                    if not self.folder:
+                        return
                     for V in self.liste_of_videos:
                         V.Folder=self.folder
 

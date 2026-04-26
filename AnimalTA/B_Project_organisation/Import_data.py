@@ -518,6 +518,8 @@ def import_listed(prog, Vid, boss):
         #If you wish to import data from a ToxTrack project, indicate the path for the folder "Project_ToxTrack/My_Video/".
         #You must have first saved the results of the trackings from ToxTrack (Results > Statistics > Save Results) without applying calibration
         data_folder = filedialog.askdirectory()
+        if not data_folder:
+            return
         all_files=os.listdir(data_folder)
         all_files=[file for file in all_files if bool(re.search('Tracking_RealSpace_', file))]
 

@@ -239,6 +239,18 @@ def start_mainframe():
     root=Mainframe()
     root.title("AnimalTA")
     compat.startup_debug("Mainframe instance created")
+
+    if sys.platform != "win32":
+        import tkinter.font as tkfont
+        for font_name in ('TkDefaultFont', 'TkTextFont', 'TkMenuFont', 'TkHeadingFont', 'TkCaptionFont', 'TkSmallCaptionFont', 'TkIconFont', 'TkTooltipFont'):
+            try:
+                f = tkfont.nametofont(font_name)
+                size = f.cget('size')
+                if size > 0:
+                    f.configure(size=max(7, size - 1))
+            except Exception:
+                pass
+
     style = ttk.Style()
     style.theme_use('clam')
     compat.startup_debug("Tk style configured")
