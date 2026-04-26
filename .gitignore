@@ -1,20 +1,28 @@
-# Default ignored files
+# IDE
 /shelf/
 /workspace.xml
+.idea/
 
 # Claude Code
 .claude/
 
 # Built container
 *.sif
+*.deb
+
+# Local test data and planning docs
+test_project/
+refactor.md
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 .pytest_cache/
 .mypy_cache/
 
 # Virtual environments
 venv/
 .venv/
+env/
