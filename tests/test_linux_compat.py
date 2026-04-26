@@ -10,9 +10,10 @@ import shutil
 import types
 import uuid
 import numpy as np
+import pytest
 
 
-ANIMALTA_DIR = os.path.join(os.path.dirname(__file__), "AnimalTA")
+ANIMALTA_DIR = os.path.join(os.path.dirname(__file__), "..", "AnimalTA")
 TEST_SCRATCH_ROOT = os.path.join(tempfile.gettempdir(), "animalta_test_linux_compat")
 
 
@@ -427,6 +428,7 @@ def test_tracking_modules_do_not_print_debug_output():
 
 def test_reader_update_image_returns_none_after_close():
     """Queued frame updates should quietly stop once the video reader starts closing."""
+    pytest.importorskip("psutil")
     from AnimalTA.A_General_tools.Class_Lecteur import Lecteur
 
     reader = object.__new__(Lecteur)
@@ -437,6 +439,7 @@ def test_reader_update_image_returns_none_after_close():
 
 def test_reader_update_ratio_keeps_previous_value_when_canvas_is_gone():
     """Canvas teardown should not trigger Tk errors while recomputing the zoom ratio."""
+    pytest.importorskip("psutil")
     from AnimalTA.A_General_tools.Class_Lecteur import Lecteur
 
     reader = object.__new__(Lecteur)
@@ -490,6 +493,7 @@ def test_converted_videos_dir_path_creates_project_subdir():
 
 def test_tracking_check_resize_ignores_incomplete_coordinate_load():
     """A failed coordinate load should not cascade into resize-table attribute errors."""
+    pytest.importorskip("decord")
     from AnimalTA.E_Post_tracking.a_Tracking_verification.Interface_Check import Lecteur
 
     viewer = object.__new__(Lecteur)
@@ -502,6 +506,7 @@ def test_tracking_check_resize_ignores_incomplete_coordinate_load():
 
 def test_tracking_check_table_noops_until_coordinates_are_loaded():
     """The verification table should stay idle until coordinate data has loaded successfully."""
+    pytest.importorskip("decord")
     from AnimalTA.E_Post_tracking.a_Tracking_verification.Interface_Check import Lecteur
 
     viewer = object.__new__(Lecteur)
