@@ -1,19 +1,13 @@
-# AnimalTA Open OnDemand App
+# AnimalTA — Open OnDemand App
 
-## Building the container
-```bash
-apptainer build animalta.sif Apptainer.def
-```
+This directory contains the OOD interactive app configuration for AnimalTA.
 
-## Installing the OOD app
-Copy this `ood/` directory to your OOD apps directory
-(typically `/var/www/ood/apps/sys/` or use the OOD dev sandbox).
+For full deployment instructions see [DEPLOYMENT.md](DEPLOYMENT.md).
 
-## Configuration
-Edit the following files and replace CHANGEME markers:
-- `form.yml`: cluster name
-- `template/script.sh.erb`: path to .sif file, module loads
+## Quick summary
 
-The launcher seeds a writable runtime area at `$HOME/.animalta/Projects`.
-If a bundled or read-only `.ata` project is opened, AnimalTA now creates a
-writable working copy there before conversion, tracking, or coordinate export.
+1. Build or download `animalta.sif` (see DEPLOYMENT.md Step 1)
+2. Copy this `ood/` directory to your OOD sys apps directory
+3. Set your cluster name in `form.yml`
+4. Set the `.sif` path in `template/script.sh.erb`
+5. Wire `#SBATCH` directives from the form fields (see DEPLOYMENT.md Step 4)

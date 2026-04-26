@@ -1,15 +1,72 @@
-# AnimalTA — Linux/HPC Fork
+# AnimalTA — Linux / HPC Fork
 
-> **Fork of [VioletteChiara/AnimalTA](https://github.com/VioletteChiara/AnimalTA)** — adds native Linux support, an Apptainer container for HPC clusters, and Open OnDemand deployment. The original Windows installer and all core tracking functionality come from Violette Chiara's work. See [ood/DEPLOYMENT.md](ood/DEPLOYMENT.md) to deploy on an HPC cluster via Open OnDemand.
+> Forked from [VioletteChiara/AnimalTA](https://github.com/VioletteChiara/AnimalTA).
+> This fork adds native Linux support, an Apptainer container for HPC clusters, and
+> Open OnDemand deployment. All core tracking functionality is Violette Chiara's work.
 
-This is the latest version of AnimalTA, an easy-to-use video tracking program.
-AnimalTA is associated with an installer under the Windows operating system (see the original repo's releases), and this fork runs natively on Linux via Apptainer.
-More information can be found in the user manual.
+AnimalTA is an easy-to-use GUI program for tracking and analysing animal movement in video.
+It supports multiple arenas, flexible background subtraction, Kalman filtering, and a full
+post-tracking analysis suite.
 
+---
 
-If you are using AnimalTA for your research, please cite: 
-Chiara, V., & Kim, S.-Y. (2023). AnimalTA: A highly flexible and easy-to-use program for tracking and analyzing animal movement in different environments. Methods in Ecology and Evolution, 14, 1699– 1707.*
-https://besjournals.onlinelibrary.wiley.com/doi/10.1111/2041-210X.14115
+## Using on an HPC cluster (Linux)
 
-# Request a language
-If the language you want to translate is not present in AnimalTA yet, submit an issue so that we can provide you with the mandatory material.
+The recommended path is the pre-built Apptainer container, which bundles all dependencies.
+
+### 1. Get the container
+
+Download `animalta.sif` from the [latest release](../../releases/latest), or build it yourself:
+
+```bash
+apptainer build animalta.sif Apptainer.def
+```
+
+### 2. Run
+
+```bash
+apptainer exec --bind /home/$USER:/home/$USER animalta.sif animalta
+```
+
+A display is required — run this inside a VNC session or via Open OnDemand.
+
+### 3. Open OnDemand deployment
+
+See [ood/DEPLOYMENT.md](ood/DEPLOYMENT.md) for the full step-by-step guide for HPC sysadmins.
+
+---
+
+## Using on Windows
+
+Download the installer from the [original repo's releases](https://github.com/VioletteChiara/AnimalTA/releases).
+The Windows version has a one-click installer and does not require this fork.
+
+---
+
+## Installing from source (Linux / macOS)
+
+```bash
+pip install -r requirements.txt
+python main.py
+```
+
+Requires Python 3.10+ and a working display (X11 or Wayland via XWayland).
+Use `opencv-python-headless` (already specified in `requirements.txt`) to avoid
+conflicts between OpenCV's Qt backend and tkinter.
+
+---
+
+## Citation
+
+If you use AnimalTA in your research, please cite the original paper:
+
+> Chiara, V., & Kim, S.-Y. (2023). AnimalTA: A highly flexible and easy-to-use program
+> for tracking and analyzing animal movement in different environments.
+> *Methods in Ecology and Evolution*, 14, 1699–1707.
+> [https://doi.org/10.1111/2041-210X.14115](https://doi.org/10.1111/2041-210X.14115)
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE). Original copyright © 2022 Violette Chiara.
