@@ -12,6 +12,10 @@
 
 # Local test data
 test_project/
+tmp_pytest_*/
+
+# Private working notes (kept locally, not for public repo)
+GPU_ACCELERATION.md
 
 # Python
 __pycache__/
