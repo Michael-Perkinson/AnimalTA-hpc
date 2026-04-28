@@ -41,7 +41,7 @@ class Mainframe(Tk):
             file_path=None
 
         #Change here the last version
-        current_version="v3.2.3"
+        current_version="v3.2.2"
 
 
         #We check the parameters
