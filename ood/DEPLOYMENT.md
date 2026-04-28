@@ -103,12 +103,11 @@ writable directory is needed.
 
 ## GPU (optional)
 
-If you want GPU-accelerated tracking (much faster — see `GPU_ACCELERATION.md`):
+GPU acceleration is under active development and not yet available in a release container.
+When ready:
 - The `--nv` flag is already in `script.sh.erb` — ensure the job lands on a GPU node
 - Add a GPU SLURM directive: `#SBATCH --gres=gpu:1`
 - Add a GPU field to `form.yml` (see the commented example in that file)
-- The current container does **not** include CUDA OpenCV — this requires a rebuild
-  from a CUDA base image (documented in `GPU_ACCELERATION.md`)
 
 Without `--nv` or on a CPU-only node, remove the `--nv` flag — Apptainer will
 warn but still run.
