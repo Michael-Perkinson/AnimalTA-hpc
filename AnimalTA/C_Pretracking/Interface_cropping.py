@@ -108,15 +108,10 @@ class Cropping(Frame):
 
 
         #Fix the beg/end
-        self.canvas_fix=Frame(self.canvas_buttons, bd=0, highlightthickness=0, **Color_settings.My_colors.Frame_Base)
-        self.canvas_fix.grid(row=1, column=0, sticky="ew")
-
-        self.B_Begin=Button(self.canvas_fix, text=self.Messages["Crop3"], command=self.fix_begin, **Color_settings.My_colors.Button_Base)
-        self.B_Begin.grid(row=0, column=0, sticky="ew", padx=(4, 2))
-        self.B_End=Button(self.canvas_fix, text=self.Messages["Crop4"], command=self.fix_end, **Color_settings.My_colors.Button_Base)
-        self.B_End.grid(row=0, column=1, sticky="ew", padx=(2, 4))
-
-        self.canvas_fix.grid_columnconfigure((0, 1), weight=1)
+        self.B_Begin=Button(self.canvas_entrie, text=self.Messages["Crop3"], command=self.fix_begin, **Color_settings.My_colors.Button_Base)
+        self.B_Begin.grid(row=3, column=1, columnspan=3, sticky="ew", padx=(4, 2))
+        self.B_End=Button(self.canvas_entrie, text=self.Messages["Crop4"], command=self.fix_end, **Color_settings.My_colors.Button_Base)
+        self.B_End.grid(row=3, column=4, columnspan=3, sticky="ew", padx=(2, 4))
 
         self.HW= User_help.Help_win(self.parent, default_message=self.Messages["Crop2"],
                                     shortcuts={self.Messages["Short_Space"]: self.Messages["Short_Space_G"],
