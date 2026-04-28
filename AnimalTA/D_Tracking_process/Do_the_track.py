@@ -11,6 +11,11 @@ import queue
 import pickle
 import sys
 import re
+import datetime as _dt
+
+def _tlog(msg):
+    ts = _dt.datetime.now().strftime("%H:%M:%S")
+    print(f"[track {ts}] {msg}", file=sys.stderr, flush=True)
 
 '''
 To improve the speed of the tracking, we will separate the work in 2 threads.
@@ -84,17 +89,18 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     security_settings_track.activate_super_protection=False
 
     if Vid.type=="Video":
+        _tlog("opening video...")
+        t0 = time.time()
         security_settings_track.capture = decord.VideoReader(Vid.Fusion[Which_part_first][1])  # Open video
         Prem_image_to_show = security_settings_track.capture[First_frame - Vid.Fusion[Which_part_first][0]].asnumpy()  # Take the first image
         security_settings_track.capture.seek(0)
         security_settings_track.capture = decord.VideoReader(Vid.Fusion[Which_part][1])  # Open video
         security_settings_track.capture.seek(0)
-
+        _tlog("video ready ({:.1f}s)".format(time.time()-t0))
 
     else:
         security_settings_track.capture = VL.Video_Loader(Vid, is_crop=False, is_rotate=False, ref_frame=First_frame)
         Prem_image_to_show=security_settings_track.capture[First_frame]
-
 
     if type=="fixed":
         mask, or_bright, Arenas, Prem_image_to_show = Treat_simgle_image.Prepare_Vid(Vid, Prem_image_to_show, type, portion=portion, arena_interest=arena_interest)
@@ -115,8 +121,11 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
         result_container = {}
         Th_extract_cnts=threading.Thread(target=Function_prepare_images.Image_modif, args=(Security_break, Vid, start, end, one_every, Which_part, Prem_image_to_show, mask, or_bright, Extracted_cnts, AD, result_container, ))
         Th_extract_cnts.start()
+        while Th_extract_cnts.is_alive():
+            parent.show_load()
+            time.sleep(0.1)
         Th_extract_cnts.join()
-        result = result_container['result']
+        result = result_container.get('result', None)
         return(result)
 
     else:
