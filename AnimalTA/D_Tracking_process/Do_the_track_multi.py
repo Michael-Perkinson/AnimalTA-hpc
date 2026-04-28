@@ -11,7 +11,12 @@ import queue
 import pickle
 import sys
 import time
+import datetime as _dt
 from  multiprocessing import Lock
+
+def _tlog(msg):
+    ts = _dt.datetime.now().strftime("%H:%M:%S")
+    print(f"[track {ts}] {msg}", file=sys.stderr, flush=True)
 
 '''
 To improve the speed of the tracking, we will separate the work in 2 threads.
@@ -80,10 +85,13 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
 
 
     if Vid.type=="Video":
+        _tlog("opening video (multi)...")
+        t0 = time.time()
         capture = decord.VideoReader(Vid.Fusion[Which_part_first][1])  # Open video
         capture.seek(0)
         Prem_image_to_show = capture[First_frame - Vid.Fusion[Which_part_first][0]].asnumpy()  # Take the first image
         del capture
+        _tlog("video ready ({:.1f}s)".format(time.time()-t0))
     else:
         Prem_image_to_show = cv2.imread(os.path.join(Vid.Fusion[Which_part_first][1], Vid.img_list[First_frame - Vid.Fusion[Which_part_first][0]]))
 

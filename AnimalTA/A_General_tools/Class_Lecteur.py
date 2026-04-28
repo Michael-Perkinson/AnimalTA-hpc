@@ -83,36 +83,32 @@ class Lecteur(Frame):
 
         self.canvas_buttons = Frame(self, bd=2, highlightthickness=1, **Color_settings.My_colors.Frame_Base)
         self.canvas_buttons.grid(row=3, column=0, sticky="nsew")
-        Grid.columnconfigure(self.canvas_buttons, 0, weight=1)
-
         self.x_coos= Label(self.canvas_buttons, text="X =", **Color_settings.My_colors.Label_Base)
-        self.x_coos.grid(row=0, column=2, columnspan=2)
+        self.x_coos.grid(row=0, column=0, columnspan=2)
         self.y_coos = Label(self.canvas_buttons, text="Y =", **Color_settings.My_colors.Label_Base)
-        self.y_coos.grid(row=0, column=4, columnspan=2)
+        self.y_coos.grid(row=0, column=2, columnspan=2)
 
         # Buttons:
         self.bouton_Play = Button(self.canvas_buttons, text=self.Messages["PlayB1"], command=self.play, **Color_settings.My_colors.Button_Base)
-        self.bouton_Play.grid(row=1, column=1, sticky="we")
+        self.bouton_Play.grid(row=1, column=0, sticky="we", padx=(4, 2))
         self.bouton_Stop = Button(self.canvas_buttons, text=self.Messages["PlayB2"], command=self.stop, **Color_settings.My_colors.Button_Base)
-        self.bouton_Stop.grid(row=1, column=3, sticky="we")
+        self.bouton_Stop.grid(row=1, column=1, sticky="we", padx=(2, 2))
         self.bouton_GTBeg = Button(self.canvas_buttons, text=self.Messages["PlayB3"], command=self.GotoBeg, **Color_settings.My_colors.Button_Base)
-        self.bouton_GTBeg.grid(row=1, column=5, sticky="we")
+        self.bouton_GTBeg.grid(row=1, column=2, sticky="we", padx=(2, 2))
         self.bouton_GTEnd = Button(self.canvas_buttons, text=self.Messages["PlayB4"], command=self.GotoEnd, **Color_settings.My_colors.Button_Base)
-        self.bouton_GTEnd.grid(row=1, column=7, sticky="we")
-
+        self.bouton_GTEnd.grid(row=1, column=3, sticky="we", padx=(2, 4))
 
         #Speed of playback
         self.speed=IntVar()
         self.speed.set(0)
         self.Speed_S = Scale(self.canvas_buttons, label=self.Messages["Control10"], variable=self.speed, from_=-10, to=100, orient=HORIZONTAL, command=self.change_speed, **Color_settings.My_colors.Scale_Base)
-        self.Speed_S.grid(row=0, column=9, rowspan=2, sticky="nswe")
+        self.Speed_S.grid(row=0, column=4, rowspan=2, sticky="nswe")
 
         if self.Vid.Frame_rate[1] < 1:
             self.Speed_S.config(fg=Color_settings.My_colors.list_colors["Fg_not_valide"])
 
-        self.canvas_buttons.grid_columnconfigure((1,3,5,7,9), weight=3, uniform="column")
-        self.canvas_buttons.grid_columnconfigure((0,2,4,6,8), weight=1, uniform="column")
-        self.canvas_buttons.columnconfigure(5, minsize=50)
+        self.canvas_buttons.grid_columnconfigure((0, 1, 2, 3), weight=3)
+        self.canvas_buttons.grid_columnconfigure(4, weight=3)
 
         self.canvas_video.focus_set()
         self.check_memory_overload() #Security to avoid problems of memory overload due to the decord library (see https://github.com/dmlc/decord/issues/27)
