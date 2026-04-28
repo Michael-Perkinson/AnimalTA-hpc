@@ -121,5 +121,5 @@ warn but still run.
 | App launches but GUI is blank | VNC display not set; check `DISPLAY=:<%= display %>` in script |
 | `apptainer: command not found` | Module not loaded; add `module load Apptainer` |
 | `FileNotFoundError: animalta.sif` | Wrong path in script.sh.erb |
-| App hangs on startup | Container can't write to `~/.animalta`; check home bind mount |
+| App hangs on startup | Settings fall back to `/tmp/animalta` if home isn't writable — this is fine. If it still hangs, check that your video data paths are bound (`--bind /scratch/...`) |
 | Font/text looks wrong | Expected — minor rendering difference between Windows and Linux; no action needed |
