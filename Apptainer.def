@@ -36,7 +36,8 @@ From: python:3.11-slim-bookworm
         pandastable>=0.13.0 \
         psutil>=5.9.0 \
         pymsgbox>=1.0.9 \
-        tksheet>=7.0.0
+        tksheet>=7.0.0 \
+        cupy-cuda12x>=13.0.0
 
     mkdir -p /opt/animalta
 

@@ -123,17 +123,7 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
 
             # If we want to apply light correction:
             if Vid.Track[1][7]:
-                grey = np.copy(Timg)
-                if Vid.Mask[0]:
-                    bool_mask = mask[:, :].astype(bool)
-                else:
-                    bool_mask = np.full(grey.shape, True)
-                grey2 = grey[bool_mask]
-
-                # Inspired from: https://stackoverflow.com/questions/57030125/automatically-adjusting-brightness-of-image-with-opencv
-                brightness = np.sum(grey2) / (255 * grey2.size)  # Mean value
-                ratio = brightness / or_bright
-                Timg = cv2.convertScaleAbs(grey, alpha=1 / ratio, beta=0)
+                Timg = image_utils.apply_brightness_correction(Timg, mask, or_bright, Vid.Mask[0])
 
             img=Timg
 

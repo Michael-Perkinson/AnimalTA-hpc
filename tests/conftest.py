@@ -26,3 +26,7 @@ _stub("decord")
 # psutil: used by security_settings_track.check_memory_overload() only.
 # Stub provides the one function actually called at module scope (none).
 _stub("psutil")
+
+# cupy: GPU array library.  Stub ensures gpu_utils.CUPY_AVAILABLE is False in
+# local/CI environments without a CUDA GPU, so CPU fallback paths are exercised.
+_stub("cupy")
