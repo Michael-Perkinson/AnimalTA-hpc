@@ -1058,7 +1058,7 @@ class Lecteur(Frame):
         self.Can_Col.bind("<Leave>", lambda a: self.HW.remove_tmp_message())
 
         #Button to get the coordinates table in another window
-        self.separate_coos=Button(table, text="â§‰", command=self.Coos_new_windows, **Color_settings.My_colors.Button_Base)
+        self.separate_coos=Button(table, text="⧉", command=self.Coos_new_windows, **Color_settings.My_colors.Button_Base)
         self.separate_coos.grid(row=4,column=2, sticky="snwe")
 
         #vertical scroll bar
@@ -1251,8 +1251,8 @@ class Lecteur(Frame):
 
             inds_to_show=list(range(self.Xpos.get()-1,min(self.Xpos.get()+10, len(self.Vid.Identities))))
 
-            Present_now=np.concatenate(self.who_is_here[deb + actual_pos - self.to_sub : end + actual_pos - self.to_sub])
-            Present_now=list(np.unique(Present_now))
+            _slice = self.who_is_here[deb + actual_pos - self.to_sub : end + actual_pos - self.to_sub]
+            Present_now = list(np.unique(np.concatenate(_slice))) if len(_slice) > 0 else []
 
             if self.hide_missing:
                 Present_now.sort()
