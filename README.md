@@ -25,7 +25,7 @@ apptainer build animalta.sif Apptainer.def
 ### 2. Run
 
 ```bash
-apptainer exec --bind /home/$USER:/home/$USER animalta.sif animalta
+apptainer run animalta.sif
 ```
 
 A display is required — run this inside a VNC session or via Open OnDemand.
@@ -53,6 +53,13 @@ python main.py
 Requires Python 3.10+ and a working display (X11 or Wayland via XWayland).
 Use `opencv-python-headless` (already specified in `requirements.txt`) to avoid
 conflicts between OpenCV's Qt backend and tkinter.
+
+---
+
+## Roadmap
+
+- **GPU acceleration** *(in progress)* — CUDA-accelerated background subtraction and contour extraction
+  to cut tracking time on GPU-equipped HPC nodes.
 
 ---
 
