@@ -3,6 +3,8 @@
 > Forked from [VioletteChiara/AnimalTA](https://github.com/VioletteChiara/AnimalTA).
 > This fork adds native Linux support, an Apptainer container for HPC clusters, and
 > Open OnDemand deployment. All core tracking functionality is Violette Chiara's work.
+>
+> GPU acceleration via CuPy is in development on the `gpu-acceleration` branch.
 
 AnimalTA is an easy-to-use GUI program for tracking and analysing animal movement in video.
 It supports multiple arenas, flexible background subtraction, Kalman filtering, and a full
