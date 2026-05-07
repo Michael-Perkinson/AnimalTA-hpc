@@ -58,6 +58,7 @@ From: python:3.11-slim-bookworm
     export ANIMALTA_DISABLE_UPDATE=1
     export ANIMALTA_STARTUP_DEBUG=1
     export MPLBACKEND=TkAgg
+    export LD_LIBRARY_PATH=/usr/local/cuda-12.6/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
     # Ensure tkinter finds the X display provided by the VNC session
     # DISPLAY is set by the OOD script at runtime
 
