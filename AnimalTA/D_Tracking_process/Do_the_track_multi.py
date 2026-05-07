@@ -104,7 +104,12 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
                                                                                                         portion=portion,
                                                                                                         arena_interest=arena_interest)
 
-    nb_cpu_extract_treat = (multiprocessing.cpu_count() -1)
+    try:
+        allocated_cpus = len(os.sched_getaffinity(0))
+    except AttributeError:
+        allocated_cpus = multiprocessing.cpu_count()
+    nb_cpu_extract_treat = max(1, allocated_cpus - 1)
+    _tlog("CPUs allocated: {} | total on node: {} | worker processes to spawn: {}".format(allocated_cpus, multiprocessing.cpu_count(), nb_cpu_extract_treat))
     Nb_images_processed=multiprocessing.Value("i",0)
 
 

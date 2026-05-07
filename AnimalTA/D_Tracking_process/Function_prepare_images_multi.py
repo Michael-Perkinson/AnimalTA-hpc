@@ -19,6 +19,9 @@ def send_cap_to(capture, capture_pos, frame):
 
 
 def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_bright, ID, lock_cnt, ):
+    # CUDA cannot be used in forked worker processes — disable GPU for this path.
+    from AnimalTA.A_General_tools import gpu_utils
+    gpu_utils.CUPY_AVAILABLE = False
 
     if Vid.Stab[0]:
         prev_pts = Vid.Stab[1]
