@@ -12,7 +12,6 @@ import pickle
 import sys
 import time
 import datetime as _dt
-from  multiprocessing import Lock
 
 def _tlog(msg):
     ts = _dt.datetime.now().strftime("%H:%M:%S")
@@ -113,8 +112,10 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     Nb_images_processed=multiprocessing.Value("i",0)
 
 
+    manager = multiprocessing.Manager()
+
     #Creation of the process to treat images
-    Locks_cnts = [Lock() for i in range(nb_cpu_extract_treat)]
+    Locks_cnts = [manager.Lock() for i in range(nb_cpu_extract_treat)]
 
     Processes = []
     #A end process associate the contours
@@ -136,7 +137,6 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
         Processes.append(multiprocessing.Process(target=Function_assign_cnts_multi.Treat_cnts_fixed, args=(Queues_cnt, Nb_images_processed, Vid, Arenas, start, end, prev_row, To_save, portion, one_every, use_Kalman, head_tail)))
     elif type == "variable":
         keep_entrance = Params["Keep_entrance"]
-        manager = multiprocessing.Manager()
         ID_kepts = manager.list([manager.list(sublist) for sublist in [[] for _ in Arenas]])
         Processes.append(multiprocessing.Process(target=Function_assign_cnts_multi.Treat_cnts_variable, args=(Queues_cnt, Nb_images_processed,Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, start, end, ID_kepts, prev_row, To_save, portion, one_every, not keep_entrance, use_Kalman, head_tail)))
 

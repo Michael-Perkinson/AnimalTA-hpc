@@ -5,6 +5,7 @@ import os
 import sys
 
 if __name__ == '__main__':
+    multiprocessing.set_start_method('spawn')
     multiprocessing.freeze_support()
     compat.startup_debug(f"cli entry; platform={sys.platform} DISPLAY={os.environ.get('DISPLAY', '<unset>')}")
     from AnimalTA.A_General_tools import gpu_utils
