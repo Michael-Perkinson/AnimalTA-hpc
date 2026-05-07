@@ -641,6 +641,8 @@ class Interface(Frame):
 
 
     def save_project_files(self):
+        if not getattr(self, 'file_to_save', None):
+            return
         shutil.copyfile(self.file_to_save, self.file_to_save + "old")
         # This is a security to ensure that the old file will not be deleted before ensurong the new one can be proprly saved
 
