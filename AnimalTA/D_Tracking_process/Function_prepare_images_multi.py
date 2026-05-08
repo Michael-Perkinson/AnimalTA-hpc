@@ -3,9 +3,105 @@ import time
 import multiprocessing
 import cv2
 import numpy as np
-from AnimalTA.A_General_tools import Class_stabilise, UserMessages, image_utils
+from AnimalTA.A_General_tools import Class_stabilise, UserMessages, image_utils, gpu_utils
 from multiprocessing import Lock
 import os
+
+if gpu_utils.CUPY_AVAILABLE:
+    import cupy as cp
+    import cupyx.scipy.ndimage as cpnd
+
+
+def _bgr_to_gray_gpu(img_gpu):
+    # BT.601 luma weights, same as cv2.COLOR_BGR2GRAY
+    weights = cp.array([0.114, 0.587, 0.299], dtype=cp.float32)
+    return cp.dot(img_gpu.astype(cp.float32), weights).astype(cp.uint8)
+
+
+def _process_frame_gpu(img, TMP_back, Vid, mask, kernel):
+    """Run background subtraction, threshold, mask, and morphology on GPU."""
+    img_gpu = cp.asarray(img)
+
+    if Vid.Back[0] == 1 or Vid.Back[0] == 2:
+        back_gpu = cp.asarray(TMP_back)
+        sub_mode = Vid.Track[1][10][1]
+        if sub_mode == 0:
+            img_gpu = cp.abs(img_gpu.astype(cp.int16) - back_gpu.astype(cp.int16)).astype(cp.uint8)
+        elif sub_mode == 1:
+            img_gpu = cp.clip(back_gpu.astype(cp.int16) - img_gpu.astype(cp.int16), 0, 255).astype(cp.uint8)
+        else:
+            img_gpu = cp.clip(img_gpu.astype(cp.int16) - back_gpu.astype(cp.int16), 0, 255).astype(cp.uint8)
+
+        if Vid.Track[1][10][2] == 1:
+            img_gpu = cp.asarray(image_utils.apply_relative_background(cp.asnumpy(img_gpu), TMP_back))
+
+        if Vid.Track[1][10][0] == 1:
+            img_gpu = _bgr_to_gray_gpu(img_gpu)
+
+        img_gpu = (img_gpu > Vid.Track[1][0]).astype(cp.uint8) * 255
+
+    elif Vid.Back[0] == 0:
+        if Vid.Track[1][10][0] == 1:
+            img_gpu = _bgr_to_gray_gpu(img_gpu)
+        # Adaptive threshold has no simple GPU equivalent - fall back to CPU for this step
+        img_np = cp.asnumpy(img_gpu)
+        if Vid.Track[1][10][1] == 2:
+            img_np = cv2.bitwise_not(img_np)
+        img_np = cv2.adaptiveThreshold(img_np, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                                        cv2.THRESH_BINARY_INV, Vid.Track[1][0], Vid.Track[1][11])
+        img_gpu = cp.asarray(img_np)
+
+    if Vid.Mask[0]:
+        mask_gpu = cp.asarray(mask)
+        img_gpu = img_gpu & mask_gpu
+
+    morph_footprint = np.ones((3, 3), dtype=bool)
+    if Vid.Track[1][1] > 0:
+        for _ in range(Vid.Track[1][1]):
+            img_gpu = cp.asarray(cpnd.minimum_filter(img_gpu, footprint=morph_footprint))
+    if Vid.Track[1][2] > 0:
+        for _ in range(Vid.Track[1][2]):
+            img_gpu = cp.asarray(cpnd.maximum_filter(img_gpu, footprint=morph_footprint))
+
+    return cp.asnumpy(img_gpu)
+
+
+def _process_frame_cpu(img, TMP_back, Vid, mask, kernel):
+    """CPU fallback for background subtraction, threshold, mask, and morphology."""
+    if Vid.Back[0] == 1 or Vid.Back[0] == 2:
+        sub_mode = Vid.Track[1][10][1]
+        if sub_mode == 0:
+            img = cv2.absdiff(TMP_back, img)
+        elif sub_mode == 1:
+            img = cv2.subtract(TMP_back, img)
+        else:
+            img = cv2.subtract(img, TMP_back)
+
+        if Vid.Track[1][10][2] == 1:
+            img = image_utils.apply_relative_background(img, TMP_back)
+
+        if Vid.Track[1][10][0] == 1:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        _, img = cv2.threshold(img, Vid.Track[1][0], 255, cv2.THRESH_BINARY)
+
+    elif Vid.Back[0] == 0:
+        if Vid.Track[1][10][0] == 1:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if Vid.Track[1][10][1] == 2:
+            img = cv2.bitwise_not(img)
+        img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                                     cv2.THRESH_BINARY_INV, Vid.Track[1][0], Vid.Track[1][11])
+
+    if Vid.Mask[0]:
+        img = cv2.bitwise_and(img, img, mask=mask)
+
+    if Vid.Track[1][1] > 0:
+        img = cv2.erode(img, kernel, iterations=Vid.Track[1][1])
+    if Vid.Track[1][2] > 0:
+        img = cv2.dilate(img, kernel, iterations=Vid.Track[1][2])
+
+    return img
 
 
 def send_cap_to(capture, capture_pos, frame):
@@ -134,47 +230,10 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
                     TMP_back=img.copy()
                 progressive_back.apply(img)
 
-
-            if Vid.Back[0] == 1 or Vid.Back[0] == 2: #A background is defined or dynamical background
-                if Vid.Track[1][10][1] == 0:
-                    img = cv2.absdiff(TMP_back, img)
-                elif Vid.Track[1][10][1] == 1:
-                    img = cv2.subtract(TMP_back, img)
-                elif Vid.Track[1][10][1] == 2:
-                    img = cv2.subtract(img, TMP_back)
-
-                if Vid.Track[1][10][2] == 1:
-                    img = image_utils.apply_relative_background(img, TMP_back)
-
-                if Vid.Track[1][10][0] == 1:
-                    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-            elif Vid.Back[0]==0 and Vid.Track[1][10][0] == 1:
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-
-
-
-            #Threshold
-            if Vid.Back[0]==1 or Vid.Back[0]==2:# ABack subtraction
-                _, img = cv2.threshold(img, Vid.Track[1][0], 255, cv2.THRESH_BINARY)
-
-            elif Vid.Back[0]==0: #Adpative threshold
-                if Vid.Track[1][10][1] == 2:
-                    img = cv2.bitwise_not(img)
-                img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,  Vid.Track[1][0] , Vid.Track[1][11])
-
-            # Mask
-            if Vid.Mask[0]:
-                img = cv2.bitwise_and(img, img, mask=mask)
-
-            # Erosion
-            if Vid.Track[1][1] > 0:
-                img = cv2.erode(img, kernel, iterations=Vid.Track[1][1])
-
-            # Dilation
-            if Vid.Track[1][2] > 0:
-                img = cv2.dilate(img, kernel, iterations=Vid.Track[1][2])
+            if gpu_utils.CUPY_AVAILABLE:
+                img = _process_frame_gpu(img, TMP_back, Vid, mask, kernel)
+            else:
+                img = _process_frame_cpu(img, TMP_back, Vid, mask, kernel)
 
             # Find contours:
             cnts, _ = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
