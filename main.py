@@ -12,6 +12,7 @@ if __name__ == '__main__':
     gpu_status = "available" if gpu_utils.CUPY_AVAILABLE else "not available (CPU fallback)"
     print(f"[AnimalTA] GPU acceleration: {gpu_status}", file=sys.stderr, flush=True)
     if not gpu_utils.CUPY_AVAILABLE and gpu_utils.GPU_FALLBACK_REASON:
+        print(f"[AnimalTA] GPU fallback reason: {gpu_utils.GPU_FALLBACK_REASON}", file=sys.stderr, flush=True)
         import tkinter as tk
         import tkinter.messagebox as mb
         _root = tk.Tk()
