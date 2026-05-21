@@ -5,6 +5,72 @@ from AnimalTA.A_General_tools import UserMessages
 from pymediainfo import MediaInfo
 import subprocess
 import re
+import tempfile
+
+_nvenc_cache = None
+
+
+def _probe_nvenc(ffmpeg_path):
+    """Return True if this ffmpeg build has h264_nvenc and a CUDA device is accessible."""
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".avi", delete=False) as f:
+            tmp = f.name
+        cmd = [
+            ffmpeg_path, "-y",
+            "-f", "lavfi", "-i", "color=black:size=16x16:rate=1:duration=1",
+            "-c:v", "h264_nvenc", "-frames:v", "1", tmp,
+        ]
+        startupinfo = None
+        creationflags = 0
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            creationflags = subprocess.CREATE_NO_WINDOW
+        result = subprocess.run(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            startupinfo=startupinfo, creationflags=creationflags, timeout=15,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+    finally:
+        if tmp:
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
+
+
+def _nvenc_available(ffmpeg_path):
+    global _nvenc_cache
+    if _nvenc_cache is None:
+        _nvenc_cache = _probe_nvenc(ffmpeg_path)
+    return _nvenc_cache
+
+
+def _codec_args(use_nvenc, quality_vid, scale_filter=None):
+    """Return the ffmpeg codec/quality/filter args for the chosen encoder.
+
+    quality_vid is the libxvid q:v scale (1=best, 31=worst).  NVENC uses a
+    constrained-quality scale (0=best, 51=worst) so we remap linearly.
+    """
+    vf_args = ["-vf", f"setpts=PTS-STARTPTS,{scale_filter}"] if scale_filter else []
+
+    if use_nvenc:
+        cq = int(round((quality_vid - 1) / 30 * 51))  # remap 1-31 -> 0-51
+        return vf_args + [
+            "-c:v", "h264_nvenc",
+            "-rc", "constqp", "-qp", str(cq),
+            "-pix_fmt", "yuv420p",
+        ]
+    else:
+        return vf_args + [
+            "-c:v", "libxvid",
+            "-q:v", str(quality_vid),
+            "-pix_fmt", "yuv420p",
+            "-threads", str(max(1, (os.cpu_count() or 2) // 2)),
+        ]
 
 
 def convert_to_avi(file, new_file, frame_rate=None, quality_vid=10, progress=None):
@@ -66,6 +132,9 @@ def convert_to_avi(file, new_file, frame_rate=None, quality_vid=10, progress=Non
 
             current_dar = frame_width / frame_height
 
+            use_nvenc = _nvenc_available(ffmpeg_path)
+            needs_scale = round(current_dar, 2) != 1.0
+
             base_cmd = [
                 ffmpeg_path, "-stats_period", "0.25",
                 "-ss", str(start_time),
@@ -73,25 +142,15 @@ def convert_to_avi(file, new_file, frame_rate=None, quality_vid=10, progress=Non
                 "-i", file
             ]
 
-            if round(current_dar, 2) == 1.0:
-                cmd = base_cmd + [
-                    "-c:v", "libxvid",
-                    "-q:v", str(quality_vid),
-                    "-r", str(frame_rate),
-                    "-vsync", "cfr",
-                    "-pix_fmt", "yuv420p",
-                    "-progress", "pipe:1", "-y", output_name
-                ]
-            else:
-                cmd = base_cmd + [
-                    "-vf", f"setpts=PTS-STARTPTS,{scale_filter}",
-                    "-c:v", "libxvid",
-                    "-q:v", str(quality_vid),
-                    "-r", str(frame_rate),
-                    "-vsync", "cfr",
-                    "-pix_fmt", "yuv420p",
-                    "-progress", "pipe:1", "-y", output_name
-                ]
+            codec_args = _codec_args(
+                use_nvenc, quality_vid,
+                scale_filter=scale_filter if needs_scale else None,
+            )
+            cmd = base_cmd + codec_args + [
+                "-r", str(frame_rate),
+                "-vsync", "cfr",
+                "-progress", "pipe:1", "-y", output_name
+            ]
 
             Fusions.append([start_frame, output_name])
 
