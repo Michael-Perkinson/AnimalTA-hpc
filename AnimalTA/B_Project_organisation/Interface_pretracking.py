@@ -749,9 +749,10 @@ class Interface(Frame):
         try:
             if file==None:#If we open a new project, we beginn from
                 if new_file==None:
-                    self.file_to_open = filedialog.askopenfilename(filetypes=(("AnimalTA", "*.ata"),))
+                    self.file_to_open = filedialog.askopenfilename(initialdir=UserMessages.get_last_project_dir(), filetypes=(("AnimalTA", "*.ata"),))
                     if not self.file_to_open:
                         return
+                    UserMessages.set_last_project_dir(self.file_to_open)
                 else:
                     self.file_to_open=new_file
 
@@ -804,9 +805,10 @@ class Interface(Frame):
                 answer = question.result
 
                 if answer==0:
-                    self.folder=filedialog.askdirectory()
+                    self.folder=filedialog.askdirectory(initialdir=UserMessages.get_last_project_dir())
                     if not self.folder:
                         return
+                    UserMessages.set_last_project_dir(self.folder)
                     for V in self.liste_of_videos:
                         V.Folder=self.folder
 
@@ -1242,13 +1244,14 @@ class Interface(Frame):
         try:
             self.file_to_save = filedialog.asksaveasfilename(defaultextension=".ata",
                                                              initialfile="Untitled_project.ata",
-                                                             initialdir=UserMessages.projects_dir_path(),
+                                                             initialdir=UserMessages.get_last_project_dir(),
                                                              filetypes=(("AnimalTA", "*.ata"),))
 
             if len(self.file_to_save) > 0:
                 file_name = os.path.basename(self.file_to_save)
                 point_pos = file_name.rfind(".")
                 self.folder = os.path.join(os.path.dirname(self.file_to_save), "Project_folder_" + file_name[:point_pos])
+                UserMessages.set_last_project_dir(self.file_to_save)
                 if not os.path.isdir(self.folder):
                     os.makedirs(self.folder)
                 else:
