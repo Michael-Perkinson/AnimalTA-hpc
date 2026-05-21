@@ -124,6 +124,7 @@ class Convert(Frame):
         Grid.columnconfigure(self.loading_canvas, 0, weight=1)
 
         def _on_inner_configure(event):
+            self._scroll_canvas.update_idletasks()
             self._scroll_canvas.configure(scrollregion=self._scroll_canvas.bbox("all"))
         def _on_canvas_resize(event):
             self._scroll_canvas.itemconfig(self._scroll_window, width=event.width)

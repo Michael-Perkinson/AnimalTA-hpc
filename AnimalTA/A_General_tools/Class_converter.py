@@ -80,7 +80,10 @@ def convert_to_avi(file, new_file, frame_rate=None, quality_vid=10, progress=Non
         if sys.platform == "win32":
             ffmpeg_path = os.path.join(File_folder, "ffmpeg", "ffmpeg.exe")
         else:
-            ffmpeg_path = "ffmpeg"  # use system ffmpeg on Linux/macOS
+            import shutil
+            ffmpeg_path = shutil.which("ffmpeg") or os.path.join(File_folder, "ffmpeg", "ffmpeg")
+            if not os.path.isfile(ffmpeg_path) and not shutil.which("ffmpeg"):
+                raise FileNotFoundError("ffmpeg not found on PATH or in bundled location")
 
         cap = cv2.VideoCapture(file)
         frame_width = int(cap.get(3))
