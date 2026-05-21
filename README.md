@@ -61,9 +61,6 @@ conflicts between OpenCV's Qt backend and tkinter.
 - **GPU acceleration** *(in progress)* — CUDA-accelerated background subtraction and contour extraction
   to cut tracking time on GPU-equipped HPC nodes.
 
-- **Scrollable video import list** — wrap the per-video progress bars in `Interface_Vids_for_convert.py`
-  in a scrollable frame so the window doesn't grow off-screen when importing many videos at once.
-
 ---
 
 ## Citation
