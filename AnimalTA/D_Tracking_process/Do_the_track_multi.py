@@ -12,10 +12,33 @@ import pickle
 import sys
 import time
 import datetime as _dt
+import psutil
 
 def _tlog(msg):
     ts = _dt.datetime.now().strftime("%H:%M:%S")
     print(f"[track {ts}] {msg}", file=sys.stderr, flush=True)
+
+
+def _safe_worker_count(allocated_cpus, vid_shape, chunk_size):
+    h, w = vid_shape[0], vid_shape[1]
+    # Estimate peak RAM per worker: half of chunk_size frames in flight (average case),
+    # each frame stored as RGB uint8 + a grayscale processed copy + GPU transfer buffer.
+    # x3 safety margin for contour results, Vid object pickle, and OS overhead.
+    bytes_per_frame = h * w * 4  # RGB + grayscale ~ 4 bytes/pixel
+    bytes_per_worker = bytes_per_frame * (chunk_size // 2) * 3
+    available = psutil.virtual_memory().available
+    mem_based = max(1, int(available * 0.75 / bytes_per_worker))
+    count = min(allocated_cpus - 1, mem_based)
+    _tlog(
+        "worker cap: cpu_limit={} mem_limit={} available={:.1f}GB per_worker_est={:.0f}MB -> using {}".format(
+            allocated_cpus - 1,
+            mem_based,
+            available / 1e9,
+            bytes_per_worker / 1e6,
+            count,
+        )
+    )
+    return count
 
 '''
 To improve the speed of the tracking, we will separate the work in 2 threads.
@@ -103,11 +126,13 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
                                                                                                         portion=portion,
                                                                                                         arena_interest=arena_interest)
 
+    chunk_size = 250
+
     try:
         allocated_cpus = len(os.sched_getaffinity(0))
     except AttributeError:
         allocated_cpus = multiprocessing.cpu_count()
-    nb_cpu_extract_treat = max(1, allocated_cpus - 1)
+    nb_cpu_extract_treat = _safe_worker_count(allocated_cpus, Vid.shape, chunk_size)
     _tlog("CPUs allocated: {} | total on node: {} | worker processes to spawn: {}".format(allocated_cpus, multiprocessing.cpu_count(), nb_cpu_extract_treat))
     Nb_images_processed=multiprocessing.Value("i",0)
 
@@ -119,7 +144,6 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
 
     Processes = []
     #A end process associate the contours
-    chunk_size=250
 
     all_frames=np.arange(start, end + one_every, one_every)
     Images_to_treat = [
@@ -145,10 +169,6 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     for process_ID in range(nb_cpu_extract_treat):
         Processes.append(multiprocessing.Process(target=Function_prepare_images_multi.Image_modif, args=(Queues_cnt, Queue_frames, Vid, Prem_image_to_show, mask, or_bright, process_ID, Locks_cnts[process_ID])))
 
-    to_add = parent.loading_state.cget("text")
-    parent.loading_state.config(text=to_add)
-
-
     for process in Processes:
         process.start()
 
@@ -166,9 +186,8 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
                 for process in failed_processes
             )
             raise RuntimeError("Multiprocess tracking worker failed ({})".format(failed_details))
-        with Nb_images_processed.get_lock():  # Acquire lock to safely modify the shared value
+        with Nb_images_processed.get_lock():
             parent.timer=(Nb_images_processed.value)/(Vid.Cropped[1][1]/one_every-Vid.Cropped[1][0]/one_every)
-            parent.show_load()
 
     failed_processes = [p for p in Processes if p.exitcode not in (None, 0)]
     if failed_processes:

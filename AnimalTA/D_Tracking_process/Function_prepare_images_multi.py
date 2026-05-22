@@ -64,7 +64,8 @@ def _process_frame_gpu(img, TMP_back, Vid, mask, kernel):
             for _ in range(Vid.Track[1][2]):
                 img_gpu = cp.asarray(cpnd.maximum_filter(img_gpu, footprint=morph_footprint))
         return cp.asnumpy(img_gpu)
-    except Exception:
+    except Exception as e:
+        print(f"[GPU] morphology JIT failed, falling back to CPU: {e}", flush=True)
         img_np = cp.asnumpy(img_gpu)
         kernel = np.ones((3, 3), np.uint8)
         if Vid.Track[1][1] > 0:
@@ -241,7 +242,8 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
             if gpu_utils.CUPY_AVAILABLE:
                 try:
                     img = _process_frame_gpu(img, TMP_back, Vid, mask, kernel)
-                except Exception:
+                except Exception as e:
+                    print(f"[GPU] frame processing failed, falling back to CPU: {e}", flush=True)
                     img = _process_frame_cpu(img, TMP_back, Vid, mask, kernel)
             else:
                 img = _process_frame_cpu(img, TMP_back, Vid, mask, kernel)
