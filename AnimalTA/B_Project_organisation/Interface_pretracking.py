@@ -1297,7 +1297,7 @@ class Interface(Frame):
 
         try:
             central = int(self.vsv.get())
-            nb_visibles = self.canvas_show.winfo_height() / (130)
+            nb_visibles = self.canvas_show.winfo_height() / (150)
 
             # Ensure central is within bounds
             if central>=(len(self.liste_of_videos)-1):
@@ -1307,12 +1307,14 @@ class Interface(Frame):
             for P in range(len(self.list_projects)):
                 if self.list_projects[P].winfo_ismapped():
                     self.list_projects[P].grid_forget()
+                Grid.rowconfigure(self.canvas_rows, P, minsize=0)
 
             # Display the appropriate videos
             if len(self.liste_of_videos)>0:
                 Pos=0
                 for who in range(central, min(len(self.liste_of_videos), int(central + round(nb_visibles)) + 1)):
                     self.list_projects[Pos].change_vid(self.liste_of_videos[who],Pos - 1)
+                    Grid.rowconfigure(self.canvas_rows, Pos, minsize=150)
                     if not self.list_projects[Pos].winfo_ismapped():
                         self.list_projects[Pos].grid(row=Pos, column=0, sticky="we")
                     Pos+=1
