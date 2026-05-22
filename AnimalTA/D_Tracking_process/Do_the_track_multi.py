@@ -19,21 +19,47 @@ def _tlog(msg):
     print(f"[track {ts}] {msg}", file=sys.stderr, flush=True)
 
 
+def _job_memory_limit_bytes():
+    """Return the memory limit imposed by the SLURM cgroup, or fall back to node available RAM."""
+    # cgroup v2
+    for path in ["/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"]:
+        try:
+            with open(path) as f:
+                val = f.read().strip()
+            if val != "max":
+                limit = int(val)
+                # cgroup v1 reports a sentinel near 2^63 when unlimited
+                if limit < (1 << 62):
+                    return limit
+        except Exception:
+            pass
+    # SLURM_MEM_PER_NODE is set in MB
+    slurm_mem = os.environ.get("SLURM_MEM_PER_NODE")
+    if slurm_mem:
+        try:
+            return int(slurm_mem) * 1024 * 1024
+        except ValueError:
+            pass
+    return psutil.virtual_memory().available
+
+
 def _safe_worker_count(allocated_cpus, vid_shape, chunk_size):
     h, w = vid_shape[0], vid_shape[1]
-    # Estimate peak RAM per worker: half of chunk_size frames in flight (average case),
-    # each frame stored as RGB uint8 + a grayscale processed copy + GPU transfer buffer.
-    # x3 safety margin for contour results, Vid object pickle, and OS overhead.
-    bytes_per_frame = h * w * 4  # RGB + grayscale ~ 4 bytes/pixel
-    bytes_per_worker = bytes_per_frame * (chunk_size // 2) * 3
-    available = psutil.virtual_memory().available
-    mem_based = max(1, int(available * 0.75 / bytes_per_worker))
+    # Full chunk_size frames can be queued at once per worker.
+    # Each frame: RGB (h*w*3) + grayscale (h*w) + contour overhead (~same again) = ~5 bytes/pixel.
+    # x2 safety margin for Python object overhead, Vid pickle, and queue buffering.
+    bytes_per_frame = h * w * 5
+    bytes_per_worker = bytes_per_frame * chunk_size * 2
+    job_mem = _job_memory_limit_bytes()
+    # Reserve 20% for the main process, OS, and the assignment worker
+    usable = job_mem * 0.80
+    mem_based = max(1, int(usable / bytes_per_worker))
     count = min(allocated_cpus - 1, mem_based)
     _tlog(
-        "worker cap: cpu_limit={} mem_limit={} available={:.1f}GB per_worker_est={:.0f}MB -> using {}".format(
+        "worker cap: cpu_limit={} mem_limit={} job_mem={:.1f}GB per_worker_est={:.0f}MB -> using {}".format(
             allocated_cpus - 1,
             mem_based,
-            available / 1e9,
+            job_mem / 1e9,
             bytes_per_worker / 1e6,
             count,
         )
