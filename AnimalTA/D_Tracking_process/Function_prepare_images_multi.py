@@ -56,14 +56,22 @@ def _process_frame_gpu(img, TMP_back, Vid, mask, kernel):
         img_gpu = img_gpu & mask_gpu
 
     morph_footprint = np.ones((3, 3), dtype=bool)
-    if Vid.Track[1][1] > 0:
-        for _ in range(Vid.Track[1][1]):
-            img_gpu = cp.asarray(cpnd.minimum_filter(img_gpu, footprint=morph_footprint))
-    if Vid.Track[1][2] > 0:
-        for _ in range(Vid.Track[1][2]):
-            img_gpu = cp.asarray(cpnd.maximum_filter(img_gpu, footprint=morph_footprint))
-
-    return cp.asnumpy(img_gpu)
+    try:
+        if Vid.Track[1][1] > 0:
+            for _ in range(Vid.Track[1][1]):
+                img_gpu = cp.asarray(cpnd.minimum_filter(img_gpu, footprint=morph_footprint))
+        if Vid.Track[1][2] > 0:
+            for _ in range(Vid.Track[1][2]):
+                img_gpu = cp.asarray(cpnd.maximum_filter(img_gpu, footprint=morph_footprint))
+        return cp.asnumpy(img_gpu)
+    except Exception:
+        img_np = cp.asnumpy(img_gpu)
+        kernel = np.ones((3, 3), np.uint8)
+        if Vid.Track[1][1] > 0:
+            img_np = cv2.erode(img_np, kernel, iterations=Vid.Track[1][1])
+        if Vid.Track[1][2] > 0:
+            img_np = cv2.dilate(img_np, kernel, iterations=Vid.Track[1][2])
+        return img_np
 
 
 def _process_frame_cpu(img, TMP_back, Vid, mask, kernel):
@@ -231,7 +239,10 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
                 progressive_back.apply(img)
 
             if gpu_utils.CUPY_AVAILABLE:
-                img = _process_frame_gpu(img, TMP_back, Vid, mask, kernel)
+                try:
+                    img = _process_frame_gpu(img, TMP_back, Vid, mask, kernel)
+                except Exception:
+                    img = _process_frame_cpu(img, TMP_back, Vid, mask, kernel)
             else:
                 img = _process_frame_cpu(img, TMP_back, Vid, mask, kernel)
 
