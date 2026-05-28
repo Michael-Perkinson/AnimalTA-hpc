@@ -1,11 +1,18 @@
 #Function_prepare_images_multi.py
 import time
+import datetime as _dt
+import sys
 import multiprocessing
 import cv2
 import numpy as np
 from AnimalTA.A_General_tools import Class_stabilise, UserMessages, image_utils, gpu_utils
 from multiprocessing import Lock
 import os
+
+
+def _tlog(msg):
+    ts = _dt.datetime.now().strftime("%H:%M:%S")
+    print(f"[prep_multi {ts}] {msg}", file=sys.stderr, flush=True)
 
 if gpu_utils.CUPY_AVAILABLE:
     import cupy as cp
@@ -152,6 +159,9 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
     #We load the tasks
     first = True
     cap_pos = 0
+    _t_load = _t_preproc = _t_gpu = _t_contours = 0.0
+    _n_frames = 0
+    _REPORT_EVERY = 500
     while True:
         all_cnts_kept=[]
 
@@ -192,6 +202,7 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
                     capture = cv2.VideoCapture(Vid.Fusion[Which_part][1])
                     cap_pos = 0
 
+            _t0 = time.perf_counter()
             if Vid.type == "Video":
                 cap_pos = send_cap_to(capture, cap_pos, frame - Vid.Fusion[Which_part][0])  # Set starting frame
                 if cap_pos is None:
@@ -203,9 +214,10 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
                 image=cv2.imread(os.path.join(Vid.Fusion[Which_part][1], Vid.img_list[frame - Vid.Fusion[Which_part][0]]))
                 if image is None:
                     raise RuntimeError("OpenCV could not read image frame {}".format(frame))
+            _t_load += time.perf_counter() - _t0
 
+            _t0 = time.perf_counter()
             image=cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
 
             Timg = image
 
@@ -219,25 +231,21 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
             if Vid.Cropped_sp[0]:
                 Timg = Timg[Vid.Cropped_sp[1][0]:Vid.Cropped_sp[1][2],Vid.Cropped_sp[1][1]:Vid.Cropped_sp[1][3]]
 
-
             kernel = np.ones((3, 3), np.uint8)
-            # Stabilisation
 
             if Vid.Stab[0]:
                 Timg = Class_stabilise.find_best_position(Vid=Vid, Prem_Im=Prem_image_to_show, frame=Timg, show=False, prev_pts=prev_pts)
-            #Timg_or=Timg.copy()
 
-
-            #Convert to grey
             if Vid.Track[1][10][0]==0:
                 Timg = cv2.cvtColor(Timg, cv2.COLOR_BGR2GRAY)
 
-            # If we want to apply light correction:
             if Vid.Track[1][7]:
                 Timg = image_utils.apply_brightness_correction(Timg, mask, or_bright, Vid.Mask[0])
 
             img=Timg
+            _t_preproc += time.perf_counter() - _t0
 
+            _t0 = time.perf_counter()
             # Backgroud and threshold
             if Vid.Back[0] == 2:  # Dynamic background
                 TMP_back = progressive_back.getBackgroundImage()
@@ -253,36 +261,26 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
                     img = _process_frame_cpu(img, TMP_back, Vid, mask, kernel)
             else:
                 img = _process_frame_cpu(img, TMP_back, Vid, mask, kernel)
+            _t_gpu += time.perf_counter() - _t0
 
+            _t0 = time.perf_counter()
             # Find contours:
             cnts, _ = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             kept_cnts=filter_cnts(cnts, Vid)
+            _t_contours += time.perf_counter() - _t0
 
-            # if frame % 10 == 0:
-            #     if frame % 80 == 0 or frame % 90 == 0:
-            #         folder = "F:/AnimalTA/AnimalTA_developpement/TestAI/dataset/images/val"
-            #         folder_lab = "F:/AnimalTA/AnimalTA_developpement/TestAI/dataset/labels/val"
-            #     else:
-            #         folder = "F:/AnimalTA/AnimalTA_developpement/TestAI/dataset/images/train"
-            #         folder_lab = "F:/AnimalTA/AnimalTA_developpement/TestAI/dataset/labels/train"
-            #     #Timg_or = cv2.cvtColor(Timg_or, cv2.COLOR_RGB2BGR)
-            #
-            #     cv2.imwrite(folder + "/" + "Mouse_vid1_" + str(frame) + ".jpeg", Timg_or)
-            #
-            #     txt_filename = folder_lab + "/" + "Mouse_vid1_" + str(frame) + ".txt"
-            #     species = 0  # 0=mouse
-            #     height, width, _ = Timg_or.shape  # Get image dimensions
-            #     with open(txt_filename, "w") as f:
-            #         for cnt in kept_cnts:
-            #             x, y, w, h = cv2.boundingRect(cnt)
-            #             # Convert to YOLO format (normalize values)
-            #             x_center = (x + w / 2) / width
-            #             y_center = (y + h / 2) / height
-            #             w_norm = w / width
-            #             h_norm = h / height
-            #
-            #             # Write to the file
-            #             f.write(f"{species} {x_center:.6f} {y_center:.6f} {w_norm:.6f} {h_norm:.6f}\n")
+            _n_frames += 1
+            if _n_frames % _REPORT_EVERY == 0:
+                n = _REPORT_EVERY
+                _tlog(
+                    f"worker={ID} frame={frame} avg/{n}f: "
+                    f"load={_t_load/n*1000:.1f}ms "
+                    f"preproc={_t_preproc/n*1000:.1f}ms "
+                    f"gpu={_t_gpu/n*1000:.1f}ms "
+                    f"contours={_t_contours/n*1000:.1f}ms "
+                    f"total={(_t_load+_t_preproc+_t_gpu+_t_contours)/n*1000:.1f}ms"
+                )
+                _t_load = _t_preproc = _t_gpu = _t_contours = 0.0
 
             all_cnts_kept.append([frame, kept_cnts])
         with lock_cnt:

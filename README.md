@@ -60,6 +60,8 @@ conflicts between OpenCV's Qt backend and tkinter.
 
 - **GPU acceleration** *(in progress)* — CUDA-accelerated background subtraction and contour extraction
   to cut tracking time on GPU-equipped HPC nodes.
+  - Distance matrix computation uses `scipy.spatial.distance.cdist` (vectorised C, ~5-10x faster than pure-Python loops).
+  - Assignment step uses `scipy.optimize.linear_sum_assignment` (CPU Hungarian algorithm). For typical workloads (2-10 animals per arena) the matrices are tiny and this step is not a bottleneck. If you ever scale to very large numbers of animals per arena, the [RAPIDS cuML](https://rapids.ai/) library provides a GPU Hungarian implementation that could replace this step -- cuML wheels are ~2-5 GB and are not currently included in the container.
 
 ---
 

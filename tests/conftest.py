@@ -23,9 +23,16 @@ def _stub(name, attrs=None):
 # video reading.  Tests that call filter_cnts don't exercise these paths.
 _stub("decord")
 
-# psutil: used by security_settings_track.check_memory_overload() only.
-# Stub provides the one function actually called at module scope (none).
-_stub("psutil")
+# psutil: used by security_settings_track.check_memory_overload() and by
+# joblib (via sklearn KMeans) to query CPU affinity.  The stub must expose
+# a Process class so joblib doesn't crash when it calls psutil.Process().
+import os as _os
+
+class _FakeProcess:
+    def cpu_affinity(self):
+        return list(range(_os.cpu_count() or 1))
+
+_stub("psutil", {"Process": _FakeProcess})
 
 # cupy: GPU array library.  Stub ensures gpu_utils.CUPY_AVAILABLE is False in
 # local/CI environments without a CUDA GPU, so CPU fallback paths are exercised.

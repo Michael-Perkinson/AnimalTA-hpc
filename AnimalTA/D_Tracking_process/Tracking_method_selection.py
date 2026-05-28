@@ -27,10 +27,12 @@ def Choose_method(parent, Vid, folder, type, head_tail):
         Params = pickle.load(fp)
         Low_Priority = Params["Low_priority"]
 
-    duration=(Vid.Cropped[1][1]-Vid.Cropped[1][0])/(Vid.Frame_rate[0] / Vid.Frame_rate[1])
+    one_every = Vid.Frame_rate[0] / Vid.Frame_rate[1]
+    total_frames = int((Vid.Cropped[1][1] - Vid.Cropped[1][0]) / one_every)
+    duration_s = total_frames / Vid.Frame_rate[1]
     allocated = _allocated_cpus()
 
-    if Low_Priority or Vid.Back[0] == 2 or duration < 2000 or allocated < 2:
+    if Low_Priority or Vid.Back[0] == 2 or total_frames < 2000 or allocated < 2:
         method=0
     else:
         method=1
@@ -38,7 +40,8 @@ def Choose_method(parent, Vid, folder, type, head_tail):
     if Low_Priority:
         method=0
 
-    _tlog("tracking: method={} (allocated_cpus={}, duration={:.0f}s, {})".format("multi" if method else "single", allocated, duration, Vid.User_Name))
+    _tlog("tracking: method={} (allocated_cpus={}, frames={}, duration={:.0f}s, files={}, vid={})".format(
+        "parallel" if method else "single", allocated, total_frames, duration_s, len(Vid.Fusion), Vid.User_Name))
     if method==0:
         succeed = Do_the_track.Do_tracking(parent=parent, Vid=Vid, type=type, folder=folder, test=False, head_tail=head_tail)
         return succeed
