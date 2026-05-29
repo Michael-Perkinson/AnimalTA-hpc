@@ -34,14 +34,6 @@ From: python:3.11-slim-bookworm
         && mv /tmp/ffmpeg-*-amd64-static/ffprobe /usr/local/bin/ffprobe \
         && rm -rf /tmp/ffmpeg*
 
-    curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb \
-        -o /tmp/cuda-keyring.deb \
-        && dpkg -i /tmp/cuda-keyring.deb \
-        && rm /tmp/cuda-keyring.deb \
-        && apt-get update \
-        && apt-get install -y --no-install-recommends cuda-nvrtc-12-6 cuda-nvrtc-dev-12-6 \
-        && rm -rf /var/lib/apt/lists/*
-
     pip install --no-cache-dir \
         opencv-python-headless>=4.8.0 \
         Pillow>=10.0.0 \
@@ -58,7 +50,7 @@ From: python:3.11-slim-bookworm
         psutil>=5.9.0 \
         pymsgbox>=1.0.9 \
         tksheet>=7.0.0 \
-        cupy-cuda12x>=13.0.0
+        "cupy-cuda12x[ctk]>=13.0.0"
 
     mkdir -p /opt/animalta
 
@@ -69,11 +61,6 @@ From: python:3.11-slim-bookworm
     export ANIMALTA_DISABLE_UPDATE=1
     export ANIMALTA_STARTUP_DEBUG=1
     export MPLBACKEND=TkAgg
-    # cuda-nvrtc-12-6 installs to a non-standard path that CuPy's pathfinder does not search.
-    # To verify the path inside a built .sif: apptainer exec <img>.sif find /usr -name "libnvrtc*"
-    # If upgrading CUDA, update this path to match the new version.
-    export LD_LIBRARY_PATH=/usr/local/cuda-12.6/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
-    # Ensure tkinter finds the X display provided by the VNC session
     # DISPLAY is set by the OOD script at runtime
 
 %runscript
