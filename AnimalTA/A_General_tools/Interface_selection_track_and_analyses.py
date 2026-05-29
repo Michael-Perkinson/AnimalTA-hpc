@@ -313,7 +313,7 @@ class Extend(Frame):
                                 _apply_fixed_result(_V, result)
                             _step()
                         self._run_tracking_threaded(
-                            lambda _V=V: Tracking_method_selection.Choose_method(self, Vid=self.list_vid_minus[_V], type="fixed", folder=self.boss.folder, head_tail=self.track_body_parts.get()),
+                            lambda _V=V, _vn=cur_vid_counter[0], _vt=len(list_item): Tracking_method_selection.Choose_method(self, Vid=self.list_vid_minus[_V], type="fixed", folder=self.boss.folder, head_tail=self.track_body_parts.get(), vid_num=_vn, vid_total=_vt),
                             _on_fixed_done,
                         )
                     else:
@@ -330,7 +330,7 @@ class Extend(Frame):
                                 _apply_variable_result(_V, succeed, Nb_targets)
                             _step()
                         self._run_tracking_threaded(
-                            lambda _V=V: Tracking_method_selection.Choose_method(self, Vid=self.list_vid_minus[_V], folder=self.boss.folder, type="variable", head_tail=self.track_body_parts.get()),
+                            lambda _V=V, _vn=cur_vid_counter[0], _vt=len(list_item): Tracking_method_selection.Choose_method(self, Vid=self.list_vid_minus[_V], folder=self.boss.folder, type="variable", head_tail=self.track_body_parts.get(), vid_num=_vn, vid_total=_vt),
                             _on_variable_done,
                         )
 

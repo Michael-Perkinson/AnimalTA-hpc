@@ -18,7 +18,7 @@ def _allocated_cpus():
         return multiprocessing.cpu_count()
 
 
-def Choose_method(parent, Vid, folder, type, head_tail):
+def Choose_method(parent, Vid, folder, type, head_tail, vid_num=0, vid_total=1):
     parent.timer = 0
     parent.show_load()
 
@@ -40,8 +40,8 @@ def Choose_method(parent, Vid, folder, type, head_tail):
     if Low_Priority:
         method=0
 
-    _tlog("tracking: method={} (allocated_cpus={}, frames={}, duration={:.0f}s, files={}, vid={})".format(
-        "parallel" if method else "single", allocated, total_frames, duration_s, len(Vid.Fusion), Vid.User_Name))
+    _tlog("tracking: method={} (vid={}/{}, allocated_cpus={}, segments={}, frames={}, duration={:.0f}s, first_vid={})".format(
+        "parallel" if method else "single", vid_num, vid_total, allocated, len(Vid.Fusion), total_frames, duration_s, Vid.User_Name))
     if method==0:
         succeed = Do_the_track.Do_tracking(parent=parent, Vid=Vid, type=type, folder=folder, test=False, head_tail=head_tail)
         return succeed

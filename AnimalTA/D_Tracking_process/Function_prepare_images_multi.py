@@ -5,7 +5,7 @@ import sys
 import multiprocessing
 import cv2
 import numpy as np
-from AnimalTA.A_General_tools import Class_stabilise, UserMessages, image_utils, gpu_utils
+from AnimalTA.A_General_tools import Class_stabilise, UserMessages, image_utils
 from multiprocessing import Lock
 import os
 
@@ -13,79 +13,6 @@ import os
 def _tlog(msg):
     ts = _dt.datetime.now().strftime("%H:%M:%S")
     print(f"[prep_multi {ts}] {msg}", file=sys.stderr, flush=True)
-
-if gpu_utils.CUPY_AVAILABLE:
-    import cupy as cp
-    import cupyx.scipy.ndimage as cpnd
-
-# Per-worker flag: set to False on first JIT failure so we stop retrying every frame
-_GPU_MORPH_OK = True
-
-
-def _bgr_to_gray_gpu(img_gpu):
-    # BT.601 luma weights, same as cv2.COLOR_BGR2GRAY
-    weights = cp.array([0.114, 0.587, 0.299], dtype=cp.float32)
-    return cp.dot(img_gpu.astype(cp.float32), weights).astype(cp.uint8)
-
-
-def _process_frame_gpu(img, TMP_back, Vid, mask, kernel):
-    """Run background subtraction, threshold, mask, and morphology on GPU."""
-    img_gpu = cp.asarray(img)
-
-    if Vid.Back[0] == 1 or Vid.Back[0] == 2:
-        back_gpu = cp.asarray(TMP_back)
-        sub_mode = Vid.Track[1][10][1]
-        if sub_mode == 0:
-            img_gpu = cp.abs(img_gpu.astype(cp.int16) - back_gpu.astype(cp.int16)).astype(cp.uint8)
-        elif sub_mode == 1:
-            img_gpu = cp.clip(back_gpu.astype(cp.int16) - img_gpu.astype(cp.int16), 0, 255).astype(cp.uint8)
-        else:
-            img_gpu = cp.clip(img_gpu.astype(cp.int16) - back_gpu.astype(cp.int16), 0, 255).astype(cp.uint8)
-
-        if Vid.Track[1][10][2] == 1:
-            img_gpu = cp.asarray(image_utils.apply_relative_background(cp.asnumpy(img_gpu), TMP_back))
-
-        if Vid.Track[1][10][0] == 1:
-            img_gpu = _bgr_to_gray_gpu(img_gpu)
-
-        img_gpu = (img_gpu > Vid.Track[1][0]).astype(cp.uint8) * 255
-
-    elif Vid.Back[0] == 0:
-        if Vid.Track[1][10][0] == 1:
-            img_gpu = _bgr_to_gray_gpu(img_gpu)
-        # Adaptive threshold has no simple GPU equivalent - fall back to CPU for this step
-        img_np = cp.asnumpy(img_gpu)
-        if Vid.Track[1][10][1] == 2:
-            img_np = cv2.bitwise_not(img_np)
-        img_np = cv2.adaptiveThreshold(img_np, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
-                                        cv2.THRESH_BINARY_INV, Vid.Track[1][0], Vid.Track[1][11])
-        img_gpu = cp.asarray(img_np)
-
-    if Vid.Mask[0]:
-        mask_gpu = cp.asarray(mask)
-        img_gpu = img_gpu & mask_gpu
-
-    global _GPU_MORPH_OK
-    morph_footprint = np.ones((3, 3), dtype=bool)
-    if _GPU_MORPH_OK:
-        try:
-            if Vid.Track[1][1] > 0:
-                for _ in range(Vid.Track[1][1]):
-                    img_gpu = cp.asarray(cpnd.minimum_filter(img_gpu, footprint=morph_footprint))
-            if Vid.Track[1][2] > 0:
-                for _ in range(Vid.Track[1][2]):
-                    img_gpu = cp.asarray(cpnd.maximum_filter(img_gpu, footprint=morph_footprint))
-            return cp.asnumpy(img_gpu)
-        except Exception as e:
-            _GPU_MORPH_OK = False
-            print(f"[GPU] morphology JIT failed, switching to CPU for remainder of this worker: {e}", flush=True)
-    img_np = cp.asnumpy(img_gpu)
-    kernel = np.ones((3, 3), np.uint8)
-    if Vid.Track[1][1] > 0:
-        img_np = cv2.erode(img_np, kernel, iterations=Vid.Track[1][1])
-    if Vid.Track[1][2] > 0:
-        img_np = cv2.dilate(img_np, kernel, iterations=Vid.Track[1][2])
-    return img_np
 
 
 def _process_frame_cpu(img, TMP_back, Vid, mask, kernel):
@@ -253,14 +180,7 @@ def Image_modif(Queue_cnts, Queue_frames, Vid, Prem_image_to_show, mask, or_brig
                     TMP_back=img.copy()
                 progressive_back.apply(img)
 
-            if gpu_utils.CUPY_AVAILABLE:
-                try:
-                    img = _process_frame_gpu(img, TMP_back, Vid, mask, kernel)
-                except Exception as e:
-                    print(f"[GPU] frame processing failed, falling back to CPU: {e}", flush=True)
-                    img = _process_frame_cpu(img, TMP_back, Vid, mask, kernel)
-            else:
-                img = _process_frame_cpu(img, TMP_back, Vid, mask, kernel)
+            img = _process_frame_cpu(img, TMP_back, Vid, mask, kernel)
             _t_gpu += time.perf_counter() - _t0
 
             _t0 = time.perf_counter()
