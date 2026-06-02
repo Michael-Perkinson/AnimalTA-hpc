@@ -43,21 +43,20 @@ def _job_memory_limit_bytes():
     return psutil.virtual_memory().available
 
 
-def _safe_worker_count(allocated_cpus, vid_shape, chunk_size):
+def _safe_worker_count(allocated_cpus, vid_shape):
     h, w = vid_shape[0], vid_shape[1]
-    # Full chunk_size frames can be queued at once per worker.
-    # Each frame: RGB (h*w*3) + grayscale (h*w) + contour overhead (~same again) = ~5 bytes/pixel.
-    # x2 safety margin for Python object overhead, Vid pickle, and queue buffering.
-    bytes_per_frame = h * w * 5
-    bytes_per_worker = bytes_per_frame * chunk_size * 2
+    # Reader model: Queue_raw holds ~2 raw frames per worker + ~2 frames of processing state per worker.
+    # Raw BGR decoded frame = h*w*3 bytes.
+    bytes_per_worker = h * w * 3 * 4
     job_mem = _job_memory_limit_bytes()
-    # Reserve 20% for the main process, OS, and the assignment worker
     usable = job_mem * 0.80
+    # Reserve 1 core for the reader process and 1 for the assignment worker.
+    max_from_cpus = max(1, allocated_cpus - 2)
     mem_based = max(1, int(usable / bytes_per_worker))
-    count = min(allocated_cpus - 1, mem_based)
+    count = min(max_from_cpus, mem_based)
     _tlog(
         "worker cap: cpu_limit={} mem_limit={} job_mem={:.1f}GB per_worker_est={:.0f}MB -> using {}".format(
-            allocated_cpus - 1,
+            max_from_cpus,
             mem_based,
             job_mem / 1e9,
             bytes_per_worker / 1e6,
@@ -65,6 +64,101 @@ def _safe_worker_count(allocated_cpus, vid_shape, chunk_size):
         )
     )
     return count
+
+
+def _frame_reader(Queue_raw, Vid, start, end, one_every, num_workers):
+    """Opens the video once and feeds (frame_number, raw_image) pairs to Queue_raw sequentially.
+    Sends num_workers None sentinels after the last frame to signal workers to stop."""
+    all_frames = np.arange(start, end + one_every, one_every)
+    total_frames = len(all_frames)
+
+    Which_part = 0
+    if len(Vid.Fusion) > 1:
+        Which_part = [i for i, fu in enumerate(Vid.Fusion) if fu[0] <= round(all_frames[0])][-1]
+
+    cap_pos = 0
+    capture = None
+
+    _t_grab = _t_decode = _t_queue_wait = 0.0
+    _n = 0
+    _REPORT_EVERY = 200
+    _reader_start = time.perf_counter()
+
+    _tlog("reader starting: total_frames={} num_workers={} queue_maxsize={}".format(
+        total_frames, num_workers, Queue_raw._maxsize))
+
+    try:
+        if Vid.type == "Video":
+            capture = cv2.VideoCapture(Vid.Fusion[Which_part][1])
+            if not capture.isOpened():
+                raise RuntimeError("Reader could not open {}".format(Vid.Fusion[Which_part][1]))
+
+        for frame_f in all_frames:
+            frame = round(frame_f)
+
+            if len(Vid.Fusion) > 1 and Which_part < len(Vid.Fusion) - 1 and frame >= Vid.Fusion[Which_part + 1][0]:
+                while len(Vid.Fusion) > 1 and Which_part < len(Vid.Fusion) - 1 and frame >= Vid.Fusion[Which_part + 1][0]:
+                    Which_part += 1
+                if Vid.type == "Video":
+                    if capture is not None:
+                        capture.release()
+                    capture = cv2.VideoCapture(Vid.Fusion[Which_part][1])
+                    cap_pos = 0
+
+            if Vid.type == "Video":
+                local_frame = frame - Vid.Fusion[Which_part][0]
+                _t0 = time.perf_counter()
+                while cap_pos <= local_frame:
+                    cap_pos += 1
+                    if not capture.grab():
+                        raise RuntimeError("Reader could not grab frame {} from {}".format(frame, Vid.Fusion[Which_part][1]))
+                _t_grab += time.perf_counter() - _t0
+
+                _t0 = time.perf_counter()
+                ret, image = capture.retrieve()
+                _t_decode += time.perf_counter() - _t0
+                if not ret or image is None:
+                    raise RuntimeError("Reader could not retrieve frame {} from {}".format(frame, Vid.Fusion[Which_part][1]))
+            else:
+                _t0 = time.perf_counter()
+                image = cv2.imread(os.path.join(Vid.Fusion[Which_part][1], Vid.img_list[frame - Vid.Fusion[Which_part][0]]))
+                _t_decode += time.perf_counter() - _t0
+                if image is None:
+                    raise RuntimeError("Reader could not read image frame {}".format(frame))
+
+            _t0 = time.perf_counter()
+            Queue_raw.put((frame, image))
+            _t_queue_wait += time.perf_counter() - _t0
+
+            _n += 1
+            if _n % _REPORT_EVERY == 0:
+                n = _REPORT_EVERY
+                elapsed = time.perf_counter() - _reader_start
+                overall_fps = _n / elapsed
+                _tlog(
+                    "reader frame={} ({}/{}) avg/{}: "
+                    "grab={:.2f}ms decode={:.2f}ms queue_wait={:.2f}ms "
+                    "overall_fps={:.0f} queue_size={}".format(
+                        frame, _n, total_frames, n,
+                        _t_grab / n * 1000,
+                        _t_decode / n * 1000,
+                        _t_queue_wait / n * 1000,
+                        overall_fps,
+                        Queue_raw.qsize(),
+                    )
+                )
+                _t_grab = _t_decode = _t_queue_wait = 0.0
+
+        elapsed = time.perf_counter() - _reader_start
+        _tlog("reader done: {} frames in {:.1f}s ({:.0f} fps avg); sending {} sentinels".format(
+            total_frames, elapsed, total_frames / elapsed if elapsed > 0 else 0, num_workers))
+
+        for _ in range(num_workers):
+            Queue_raw.put(None)
+
+    finally:
+        if capture is not None:
+            capture.release()
 
 '''
 To improve the speed of the tracking, we will separate the work in 2 threads.
@@ -152,33 +246,22 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
                                                                                                         portion=portion,
                                                                                                         arena_interest=arena_interest)
 
-    chunk_size = 250
-
     try:
         allocated_cpus = len(os.sched_getaffinity(0))
     except AttributeError:
         allocated_cpus = multiprocessing.cpu_count()
-    nb_cpu_extract_treat = _safe_worker_count(allocated_cpus, Vid.shape, chunk_size)
+    nb_cpu_extract_treat = _safe_worker_count(allocated_cpus, Vid.shape)
     _tlog("CPUs allocated: {} | total on node: {} | worker processes to spawn: {}".format(allocated_cpus, multiprocessing.cpu_count(), nb_cpu_extract_treat))
     Nb_images_processed=multiprocessing.Value("i",0)
 
 
     manager = multiprocessing.Manager()
 
-    #Creation of the process to treat images
-    Locks_cnts = [manager.Lock() for i in range(nb_cpu_extract_treat)]
-
     Processes = []
-    #A end process associate the contours
 
-    all_frames=np.arange(start, end + one_every, one_every)
-    Images_to_treat = [
-        [i, all_frames[val: val + chunk_size].tolist()]
-        for i, val in enumerate(range(0, len(all_frames), chunk_size))
-    ]
-    Queue_frames=multiprocessing.Queue()
-    for t in Images_to_treat:
-        Queue_frames.put(t)
+    # Bounded raw-frame queue: reader pushes decoded frames, workers consume.
+    # maxsize keeps memory bounded; backpressure throttles the reader when workers are busy.
+    Queue_raw = multiprocessing.Queue(maxsize=nb_cpu_extract_treat * 2)
 
     #We create one queue per cpu (-1 as one cpu will be in charge of the tracking itself)
     Queues_cnt=multiprocessing.Queue(maxsize=100)
@@ -191,9 +274,12 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
         Processes.append(multiprocessing.Process(target=Function_assign_cnts_multi.Treat_cnts_variable, args=(Queues_cnt, Nb_images_processed,Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, start, end, ID_kepts, prev_row, To_save, portion, one_every, not keep_entrance, use_Kalman, head_tail)))
 
 
-    #A maximum of process treat the images
+    # Single reader process: opens video once, feeds raw frames to Queue_raw.
+    Processes.append(multiprocessing.Process(target=_frame_reader, args=(Queue_raw, Vid, start, end, one_every, nb_cpu_extract_treat)))
+
+    # Worker processes: pull raw frames, run processing pipeline, push contour batches.
     for process_ID in range(nb_cpu_extract_treat):
-        Processes.append(multiprocessing.Process(target=Function_prepare_images_multi.Image_modif, args=(Queues_cnt, Queue_frames, Vid, Prem_image_to_show, mask, or_bright, process_ID, Locks_cnts[process_ID])))
+        Processes.append(multiprocessing.Process(target=Function_prepare_images_multi.Image_modif, args=(Queues_cnt, Queue_raw, Vid, Prem_image_to_show, mask, or_bright, process_ID)))
 
     for process in Processes:
         process.start()
