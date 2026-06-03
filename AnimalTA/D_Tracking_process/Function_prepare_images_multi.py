@@ -92,13 +92,20 @@ def Image_modif(Queue_cnts, Queue_raw, free_slots, shm_names, frame_shape, Vid, 
                     Queue_cnts.put(batch)
                 break
 
-            frame, slot_idx = item
+            if len(item) == 2:
+                frame, slot_idx = item
+                color_space = "BGR"
+            else:
+                frame, slot_idx, color_space = item
             # Copy frame out of shared memory and immediately return the slot to the reader.
             image = np.ndarray(frame_shape, dtype=np.uint8, buffer=shm_blocks[slot_idx].buf).copy()
             free_slots.put(slot_idx)
 
             _t0 = time.perf_counter()
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            if color_space == "BGR":
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            elif color_space != "RGB":
+                raise RuntimeError("Unsupported reader color space: {}".format(color_space))
 
             Timg = image
 

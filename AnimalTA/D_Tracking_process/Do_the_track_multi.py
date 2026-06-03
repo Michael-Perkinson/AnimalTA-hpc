@@ -20,6 +20,92 @@ def _tlog(msg):
     print(f"[track {ts}] {msg}", file=sys.stderr, flush=True)
 
 
+def _reader_backend_request():
+    backend = os.environ.get("ANIMALTA_READER_BACKEND", "auto").strip().lower()
+    aliases = {
+        "cv2": "opencv",
+        "opencv": "opencv",
+        "decord": "decord",
+        "decord-cpu": "decord",
+        "decord_cpu": "decord",
+        "decord-gpu": "decord-gpu",
+        "decord_gpu": "decord-gpu",
+        "nvdec": "decord-gpu",
+        "auto": "auto",
+    }
+    if backend not in aliases:
+        _tlog("unknown ANIMALTA_READER_BACKEND={!r}; using auto".format(backend))
+        return "auto"
+    return aliases[backend]
+
+
+def _decord_batch_size(num_slots):
+    raw = os.environ.get("ANIMALTA_DECORD_BATCH", "32")
+    try:
+        size = int(raw)
+    except ValueError:
+        _tlog("invalid ANIMALTA_DECORD_BATCH={!r}; using 32".format(raw))
+        size = 32
+    return max(1, min(size, max(1, num_slots)))
+
+
+def _decord_thread_count():
+    raw = os.environ.get("ANIMALTA_DECORD_THREADS", "0")
+    try:
+        threads = int(raw)
+    except ValueError:
+        _tlog("invalid ANIMALTA_DECORD_THREADS={!r}; using decord default".format(raw))
+        return 0
+    return max(0, threads)
+
+
+def _open_opencv_capture(path):
+    capture = cv2.VideoCapture(path)
+    if not capture.isOpened():
+        raise RuntimeError("Reader could not open {}".format(path))
+    return capture
+
+
+def _open_decord_capture(path, backend):
+    if backend == "decord-gpu":
+        gpu_id = int(os.environ.get("ANIMALTA_DECORD_GPU_ID", "0"))
+        ctx = decord.gpu(gpu_id)
+    else:
+        ctx = decord.cpu(0)
+
+    threads = _decord_thread_count()
+    kwargs = {"ctx": ctx}
+    if threads > 0:
+        kwargs["num_threads"] = threads
+    return decord.VideoReader(path, **kwargs)
+
+
+def _open_video_capture(path, requested_backend):
+    candidates = ["decord", "opencv"] if requested_backend == "auto" else [requested_backend]
+    last_error = None
+    for backend in candidates:
+        try:
+            if backend == "opencv":
+                return backend, _open_opencv_capture(path)
+            if backend in ("decord", "decord-gpu"):
+                return backend, _open_decord_capture(path, backend)
+        except Exception as exc:
+            last_error = exc
+            if requested_backend == "auto":
+                _tlog("reader backend {} unavailable for {}; trying fallback ({})".format(
+                    backend, os.path.basename(path), exc))
+                continue
+            raise
+    raise RuntimeError("Reader could not open {} ({})".format(path, last_error))
+
+
+def _close_video_capture(backend, capture):
+    if capture is None:
+        return
+    if backend == "opencv":
+        capture.release()
+
+
 def _job_memory_limit_bytes():
     """Return the memory limit imposed by the SLURM cgroup, or fall back to node available RAM."""
     # cgroup v2
@@ -51,16 +137,26 @@ def _safe_worker_count(allocated_cpus, vid_shape):
     bytes_per_worker = h * w * 3 * 4
     job_mem = _job_memory_limit_bytes()
     usable = job_mem * 0.80
-    # Reserve 1 core for the reader process and 1 for the assignment worker.
-    max_from_cpus = max(1, allocated_cpus - 2)
+    reader_backend = _reader_backend_request()
+    decord_threads = _decord_thread_count()
+    reader_cores = 1
+    if reader_backend in ("auto", "decord", "decord-gpu") and decord_threads > 1:
+        reader_cores = decord_threads
+    # Reserve cores for the reader/decode pipeline and one assignment/output process.
+    reserved_cores = reader_cores + 1
+    max_from_cpus = max(1, allocated_cpus - reserved_cores)
     mem_based = max(1, int(usable / bytes_per_worker))
     count = min(max_from_cpus, mem_based)
     _tlog(
-        "worker cap: cpu_limit={} mem_limit={} job_mem={:.1f}GB per_worker_est={:.0f}MB -> using {}".format(
+        "worker cap: cpu_limit={} mem_limit={} job_mem={:.1f}GB per_worker_est={:.0f}MB "
+        "reader_backend={} reader_cores={} reserved_cores={} -> using {}".format(
             max_from_cpus,
             mem_based,
             job_mem / 1e9,
             bytes_per_worker / 1e6,
+            reader_backend,
+            reader_cores,
+            reserved_cores,
             count,
         )
     )
@@ -82,7 +178,10 @@ def _frame_reader(Queue_raw, free_slots, shm_names, frame_shape, Vid, start, end
     if len(Vid.Fusion) > 1:
         Which_part = [i for i, fu in enumerate(Vid.Fusion) if fu[0] <= round(all_frames[0])][-1]
 
+    requested_backend = _reader_backend_request()
+    decord_batch = _decord_batch_size(len(shm_names))
     cap_pos = 0
+    capture_backend = "image" if Vid.type != "Video" else None
     capture = None
 
     _t_grab = _t_decode = _t_slot_wait = _t_shm_write = 0.0
@@ -90,26 +189,107 @@ def _frame_reader(Queue_raw, free_slots, shm_names, frame_shape, Vid, start, end
     _REPORT_EVERY = 200
     _reader_start = time.perf_counter()
 
-    _tlog("reader starting: total_frames={} num_workers={} n_slots={}".format(
-        total_frames, num_workers, len(shm_names)))
+    _tlog("reader starting: total_frames={} num_workers={} n_slots={} backend_request={} decord_batch={}".format(
+        total_frames, num_workers, len(shm_names), requested_backend, decord_batch))
+
+    def _open_part(part):
+        if Vid.type != "Video":
+            return "image", None
+        backend, cap = _open_video_capture(Vid.Fusion[part][1], requested_backend)
+        _tlog("reader opened segment={} backend={} file={}".format(
+            part + 1, backend, os.path.basename(Vid.Fusion[part][1])))
+        return backend, cap
+
+    def _write_frame(frame, image, color_space):
+        nonlocal _t_slot_wait, _t_shm_write, _n
+        nonlocal _t_grab, _t_decode
+
+        _t0 = time.perf_counter()
+        slot_idx = free_slots.get()
+        _t_slot_wait += time.perf_counter() - _t0
+
+        _t0 = time.perf_counter()
+        np.copyto(np.ndarray(frame_shape, dtype=np.uint8, buffer=shm_blocks[slot_idx].buf), image)
+        _t_shm_write += time.perf_counter() - _t0
+
+        Queue_raw.put((frame, slot_idx, color_space))
+
+        _n += 1
+        if _n % _REPORT_EVERY == 0:
+            n = _REPORT_EVERY
+            elapsed = time.perf_counter() - _reader_start
+            overall_fps = _n / elapsed
+            _tlog(
+                "reader frame={} ({}/{}) avg/{}: "
+                "grab={:.2f}ms decode={:.2f}ms slot_wait={:.2f}ms shm_write={:.2f}ms "
+                "overall_fps={:.0f} queue_size={} backend={}".format(
+                    frame, _n, total_frames, n,
+                    _t_grab / n * 1000,
+                    _t_decode / n * 1000,
+                    _t_slot_wait / n * 1000,
+                    _t_shm_write / n * 1000,
+                    overall_fps,
+                    Queue_raw.qsize(),
+                    capture_backend,
+                )
+            )
+            _t_grab = _t_decode = _t_slot_wait = _t_shm_write = 0.0
 
     try:
         if Vid.type == "Video":
-            capture = cv2.VideoCapture(Vid.Fusion[Which_part][1])
-            if not capture.isOpened():
-                raise RuntimeError("Reader could not open {}".format(Vid.Fusion[Which_part][1]))
+            capture_backend, capture = _open_part(Which_part)
 
-        for frame_f in all_frames:
+        frame_index = 0
+        while frame_index < total_frames:
+            frame_f = all_frames[frame_index]
             frame = round(frame_f)
 
             if len(Vid.Fusion) > 1 and Which_part < len(Vid.Fusion) - 1 and frame >= Vid.Fusion[Which_part + 1][0]:
                 while len(Vid.Fusion) > 1 and Which_part < len(Vid.Fusion) - 1 and frame >= Vid.Fusion[Which_part + 1][0]:
                     Which_part += 1
                 if Vid.type == "Video":
-                    if capture is not None:
-                        capture.release()
-                    capture = cv2.VideoCapture(Vid.Fusion[Which_part][1])
+                    _close_video_capture(capture_backend, capture)
+                    capture_backend, capture = _open_part(Which_part)
                     cap_pos = 0
+
+            if Vid.type == "Video" and capture_backend in ("decord", "decord-gpu"):
+                batch_frames = []
+                batch_local_frames = []
+                batch_start_index = frame_index
+                while frame_index < total_frames and len(batch_frames) < decord_batch:
+                    batch_frame = round(all_frames[frame_index])
+                    if (
+                        len(Vid.Fusion) > 1
+                        and Which_part < len(Vid.Fusion) - 1
+                        and batch_frame >= Vid.Fusion[Which_part + 1][0]
+                    ):
+                        break
+                    batch_frames.append(batch_frame)
+                    batch_local_frames.append(batch_frame - Vid.Fusion[Which_part][0])
+                    frame_index += 1
+
+                if not batch_frames:
+                    continue
+
+                _t0 = time.perf_counter()
+                try:
+                    images = capture.get_batch(batch_local_frames).asnumpy()
+                    _t_decode += time.perf_counter() - _t0
+                except Exception as exc:
+                    if requested_backend == "auto":
+                        _tlog("reader backend {} failed during decode at frame {}; switching to opencv ({})".format(
+                            capture_backend, batch_frames[0], exc))
+                        frame_index = batch_start_index
+                        requested_backend = "opencv"
+                        _close_video_capture(capture_backend, capture)
+                        capture_backend, capture = _open_part(Which_part)
+                        cap_pos = 0
+                        continue
+                    raise
+
+                for batch_frame, image in zip(batch_frames, images):
+                    _write_frame(batch_frame, image, "RGB")
+                continue
 
             if Vid.type == "Video":
                 local_frame = frame - Vid.Fusion[Which_part][0]
@@ -125,42 +305,17 @@ def _frame_reader(Queue_raw, free_slots, shm_names, frame_shape, Vid, start, end
                 _t_decode += time.perf_counter() - _t0
                 if not ret or image is None:
                     raise RuntimeError("Reader could not retrieve frame {} from {}".format(frame, Vid.Fusion[Which_part][1]))
+                color_space = "BGR"
             else:
                 _t0 = time.perf_counter()
                 image = cv2.imread(os.path.join(Vid.Fusion[Which_part][1], Vid.img_list[frame - Vid.Fusion[Which_part][0]]))
                 _t_decode += time.perf_counter() - _t0
                 if image is None:
                     raise RuntimeError("Reader could not read image frame {}".format(frame))
+                color_space = "BGR"
 
-            _t0 = time.perf_counter()
-            slot_idx = free_slots.get()
-            _t_slot_wait += time.perf_counter() - _t0
-
-            _t0 = time.perf_counter()
-            np.copyto(np.ndarray(frame_shape, dtype=np.uint8, buffer=shm_blocks[slot_idx].buf), image)
-            _t_shm_write += time.perf_counter() - _t0
-
-            Queue_raw.put((frame, slot_idx))
-
-            _n += 1
-            if _n % _REPORT_EVERY == 0:
-                n = _REPORT_EVERY
-                elapsed = time.perf_counter() - _reader_start
-                overall_fps = _n / elapsed
-                _tlog(
-                    "reader frame={} ({}/{}) avg/{}: "
-                    "grab={:.2f}ms decode={:.2f}ms slot_wait={:.2f}ms shm_write={:.2f}ms "
-                    "overall_fps={:.0f} queue_size={}".format(
-                        frame, _n, total_frames, n,
-                        _t_grab / n * 1000,
-                        _t_decode / n * 1000,
-                        _t_slot_wait / n * 1000,
-                        _t_shm_write / n * 1000,
-                        overall_fps,
-                        Queue_raw.qsize(),
-                    )
-                )
-                _t_grab = _t_decode = _t_slot_wait = _t_shm_write = 0.0
+            _write_frame(frame, image, color_space)
+            frame_index += 1
 
         elapsed = time.perf_counter() - _reader_start
         _tlog("reader done: {} frames in {:.1f}s ({:.0f} fps avg); sending {} sentinels".format(
@@ -170,8 +325,7 @@ def _frame_reader(Queue_raw, free_slots, shm_names, frame_shape, Vid, start, end
             Queue_raw.put(None)
 
     finally:
-        if capture is not None:
-            capture.release()
+        _close_video_capture(capture_backend, capture)
         for shm in shm_blocks:
             shm.close()
 
