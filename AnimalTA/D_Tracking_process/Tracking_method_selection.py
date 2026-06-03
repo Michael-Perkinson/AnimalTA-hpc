@@ -5,6 +5,7 @@ import sys
 import datetime as _dt
 from AnimalTA.A_General_tools import UserMessages
 import pickle
+import builtins
 
 def _tlog(msg):
     ts = _dt.datetime.now().strftime("%H:%M:%S")
@@ -50,7 +51,7 @@ def Choose_method(parent, Vid, folder, type, head_tail, vid_num=0, vid_total=1):
             succeed = Do_the_track_multi.Do_tracking(parent=parent, Vid=Vid, type=type, folder=folder, head_tail=head_tail)
             return succeed
         except Exception as exc:
-            _tlog("multiprocess tracking failed; retrying single-process tracker: {}: {}".format(type(exc).__name__, exc))
+            _tlog("multiprocess tracking failed; retrying single-process tracker: {}: {}".format(builtins.type(exc).__name__, exc))
             succeed = Do_the_track.Do_tracking(parent=parent, Vid=Vid, type=type, folder=folder, test=False, head_tail=head_tail)
             return succeed
 

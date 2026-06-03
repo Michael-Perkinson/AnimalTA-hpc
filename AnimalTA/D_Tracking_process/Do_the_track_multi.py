@@ -59,6 +59,23 @@ def _decord_thread_count():
     return max(0, threads)
 
 
+def _auto_decord_threads(allocated_cpus):
+    if allocated_cpus >= 16:
+        return 4
+    if allocated_cpus >= 8:
+        return 2
+    return 1
+
+
+def _configure_reader_defaults(allocated_cpus):
+    backend = _reader_backend_request()
+    if backend in ("auto", "decord", "decord-gpu") and "ANIMALTA_DECORD_THREADS" not in os.environ:
+        threads = _auto_decord_threads(allocated_cpus)
+        os.environ["ANIMALTA_DECORD_THREADS"] = str(threads)
+        _tlog("reader default: ANIMALTA_DECORD_THREADS={} based on allocated_cpus={}".format(
+            threads, allocated_cpus))
+
+
 def _open_opencv_capture(path):
     capture = cv2.VideoCapture(path)
     if not capture.isOpened():
@@ -419,6 +436,7 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
         allocated_cpus = len(os.sched_getaffinity(0))
     except AttributeError:
         allocated_cpus = multiprocessing.cpu_count()
+    _configure_reader_defaults(allocated_cpus)
     nb_cpu_extract_treat = _safe_worker_count(allocated_cpus, Vid.shape)
     _tlog("CPUs allocated: {} | total on node: {} | worker processes to spawn: {}".format(allocated_cpus, multiprocessing.cpu_count(), nb_cpu_extract_treat))
     Nb_images_processed=multiprocessing.Value("i",0)
