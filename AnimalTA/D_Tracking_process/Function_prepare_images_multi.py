@@ -1,9 +1,11 @@
 #Function_prepare_images_multi.py
+import os
 import time
 import datetime as _dt
 import sys
 import cv2
 import numpy as np
+from multiprocessing.shared_memory import SharedMemory
 from AnimalTA.A_General_tools import Class_stabilise, UserMessages, image_utils
 
 
@@ -50,7 +52,10 @@ def _process_frame_cpu(img, TMP_back, Vid, mask, kernel):
     return img
 
 
-def Image_modif(Queue_cnts, Queue_raw, Vid, Prem_image_to_show, mask, or_bright, ID):
+def Image_modif(Queue_cnts, Queue_raw, free_slots, shm_names, frame_shape, Vid, Prem_image_to_show, mask, or_bright, ID):
+    os.environ.pop('LD_PRELOAD', None)
+
+    shm_blocks = [SharedMemory(name=n, create=False) for n in shm_names]
 
     if Vid.Stab[0]:
         prev_pts = Vid.Stab[1]
@@ -79,74 +84,81 @@ def Image_modif(Queue_cnts, Queue_raw, Vid, Prem_image_to_show, mask, or_bright,
     _n_frames = 0
     _REPORT_EVERY = 500
 
-    while True:
-        item = Queue_raw.get()
-        if item is None:
-            if batch:
+    try:
+        while True:
+            item = Queue_raw.get()
+            if item is None:
+                if batch:
+                    Queue_cnts.put(batch)
+                break
+
+            frame, slot_idx = item
+            # Copy frame out of shared memory and immediately return the slot to the reader.
+            image = np.ndarray(frame_shape, dtype=np.uint8, buffer=shm_blocks[slot_idx].buf).copy()
+            free_slots.put(slot_idx)
+
+            _t0 = time.perf_counter()
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+            Timg = image
+
+            if Vid.Rotation == 1:
+                Timg = cv2.rotate(Timg, cv2.ROTATE_90_CLOCKWISE)
+            elif Vid.Rotation == 2:
+                Timg = cv2.rotate(Timg, cv2.ROTATE_180)
+            if Vid.Rotation == 3:
+                Timg = cv2.rotate(Timg, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+            if Vid.Cropped_sp[0]:
+                Timg = Timg[Vid.Cropped_sp[1][0]:Vid.Cropped_sp[1][2], Vid.Cropped_sp[1][1]:Vid.Cropped_sp[1][3]]
+
+            if Vid.Stab[0]:
+                Timg = Class_stabilise.find_best_position(Vid=Vid, Prem_Im=Prem_image_to_show, frame=Timg, show=False, prev_pts=prev_pts)
+
+            if Vid.Track[1][10][0] == 0:
+                Timg = cv2.cvtColor(Timg, cv2.COLOR_RGB2GRAY)
+
+            if Vid.Track[1][7]:
+                Timg = image_utils.apply_brightness_correction(Timg, mask, or_bright, Vid.Mask[0])
+
+            img = Timg
+            _t_preproc += time.perf_counter() - _t0
+
+            _t0 = time.perf_counter()
+            if Vid.Back[0] == 2:  # Dynamic background
+                TMP_back = progressive_back.getBackgroundImage()
+                if TMP_back is None:
+                    TMP_back = img.copy()
+                progressive_back.apply(img)
+
+            img = _process_frame_cpu(img, TMP_back, Vid, mask, kernel)
+            _t_proc += time.perf_counter() - _t0
+
+            _t0 = time.perf_counter()
+            cnts, _ = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            kept_cnts = filter_cnts(cnts, Vid)
+            _t_contours += time.perf_counter() - _t0
+
+            batch.append([frame, kept_cnts])
+            _n_frames += 1
+
+            if len(batch) >= BATCH_SIZE:
                 Queue_cnts.put(batch)
-            break
+                batch = []
 
-        frame, image = item
-
-        _t0 = time.perf_counter()
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        Timg = image
-
-        if Vid.Rotation == 1:
-            Timg = cv2.rotate(Timg, cv2.ROTATE_90_CLOCKWISE)
-        elif Vid.Rotation == 2:
-            Timg = cv2.rotate(Timg, cv2.ROTATE_180)
-        if Vid.Rotation == 3:
-            Timg = cv2.rotate(Timg, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
-        if Vid.Cropped_sp[0]:
-            Timg = Timg[Vid.Cropped_sp[1][0]:Vid.Cropped_sp[1][2], Vid.Cropped_sp[1][1]:Vid.Cropped_sp[1][3]]
-
-        if Vid.Stab[0]:
-            Timg = Class_stabilise.find_best_position(Vid=Vid, Prem_Im=Prem_image_to_show, frame=Timg, show=False, prev_pts=prev_pts)
-
-        if Vid.Track[1][10][0] == 0:
-            Timg = cv2.cvtColor(Timg, cv2.COLOR_RGB2GRAY)
-
-        if Vid.Track[1][7]:
-            Timg = image_utils.apply_brightness_correction(Timg, mask, or_bright, Vid.Mask[0])
-
-        img = Timg
-        _t_preproc += time.perf_counter() - _t0
-
-        _t0 = time.perf_counter()
-        if Vid.Back[0] == 2:  # Dynamic background
-            TMP_back = progressive_back.getBackgroundImage()
-            if TMP_back is None:
-                TMP_back = img.copy()
-            progressive_back.apply(img)
-
-        img = _process_frame_cpu(img, TMP_back, Vid, mask, kernel)
-        _t_proc += time.perf_counter() - _t0
-
-        _t0 = time.perf_counter()
-        cnts, _ = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        kept_cnts = filter_cnts(cnts, Vid)
-        _t_contours += time.perf_counter() - _t0
-
-        batch.append([frame, kept_cnts])
-        _n_frames += 1
-
-        if len(batch) >= BATCH_SIZE:
-            Queue_cnts.put(batch)
-            batch = []
-
-        if _n_frames % _REPORT_EVERY == 0:
-            n = _REPORT_EVERY
-            _tlog(
-                f"worker={ID} frame={frame} avg/{n}f: "
-                f"preproc={_t_preproc/n*1000:.1f}ms "
-                f"proc={_t_proc/n*1000:.1f}ms "
-                f"contours={_t_contours/n*1000:.1f}ms "
-                f"total={(_t_preproc+_t_proc+_t_contours)/n*1000:.1f}ms"
-            )
-            _t_preproc = _t_proc = _t_contours = 0.0
+            if _n_frames % _REPORT_EVERY == 0:
+                n = _REPORT_EVERY
+                _tlog(
+                    f"worker={ID} frame={frame} avg/{n}f: "
+                    f"preproc={_t_preproc/n*1000:.1f}ms "
+                    f"proc={_t_proc/n*1000:.1f}ms "
+                    f"contours={_t_contours/n*1000:.1f}ms "
+                    f"total={(_t_preproc+_t_proc+_t_contours)/n*1000:.1f}ms"
+                )
+                _t_preproc = _t_proc = _t_contours = 0.0
+    finally:
+        for shm in shm_blocks:
+            shm.close()
 
 
 

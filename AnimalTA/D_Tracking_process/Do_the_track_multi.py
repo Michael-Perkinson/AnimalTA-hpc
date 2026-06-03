@@ -13,6 +13,7 @@ import sys
 import time
 import datetime as _dt
 import psutil
+from multiprocessing.shared_memory import SharedMemory
 
 def _tlog(msg):
     ts = _dt.datetime.now().strftime("%H:%M:%S")
@@ -66,9 +67,14 @@ def _safe_worker_count(allocated_cpus, vid_shape):
     return count
 
 
-def _frame_reader(Queue_raw, Vid, start, end, one_every, num_workers):
-    """Opens the video once and feeds (frame_number, raw_image) pairs to Queue_raw sequentially.
+def _frame_reader(Queue_raw, free_slots, shm_names, frame_shape, Vid, start, end, one_every, num_workers):
+    """Opens the video once, writes decoded frames into shared memory slots,
+    and feeds (frame_number, slot_index) pairs to Queue_raw.
     Sends num_workers None sentinels after the last frame to signal workers to stop."""
+    os.environ.pop('LD_PRELOAD', None)
+
+    shm_blocks = [SharedMemory(name=n, create=False) for n in shm_names]
+
     all_frames = np.arange(start, end + one_every, one_every)
     total_frames = len(all_frames)
 
@@ -79,13 +85,13 @@ def _frame_reader(Queue_raw, Vid, start, end, one_every, num_workers):
     cap_pos = 0
     capture = None
 
-    _t_grab = _t_decode = _t_queue_wait = 0.0
+    _t_grab = _t_decode = _t_slot_wait = _t_shm_write = 0.0
     _n = 0
     _REPORT_EVERY = 200
     _reader_start = time.perf_counter()
 
-    _tlog("reader starting: total_frames={} num_workers={} queue_maxsize={}".format(
-        total_frames, num_workers, Queue_raw._maxsize))
+    _tlog("reader starting: total_frames={} num_workers={} n_slots={}".format(
+        total_frames, num_workers, len(shm_names)))
 
     try:
         if Vid.type == "Video":
@@ -127,8 +133,14 @@ def _frame_reader(Queue_raw, Vid, start, end, one_every, num_workers):
                     raise RuntimeError("Reader could not read image frame {}".format(frame))
 
             _t0 = time.perf_counter()
-            Queue_raw.put((frame, image))
-            _t_queue_wait += time.perf_counter() - _t0
+            slot_idx = free_slots.get()
+            _t_slot_wait += time.perf_counter() - _t0
+
+            _t0 = time.perf_counter()
+            np.copyto(np.ndarray(frame_shape, dtype=np.uint8, buffer=shm_blocks[slot_idx].buf), image)
+            _t_shm_write += time.perf_counter() - _t0
+
+            Queue_raw.put((frame, slot_idx))
 
             _n += 1
             if _n % _REPORT_EVERY == 0:
@@ -137,17 +149,18 @@ def _frame_reader(Queue_raw, Vid, start, end, one_every, num_workers):
                 overall_fps = _n / elapsed
                 _tlog(
                     "reader frame={} ({}/{}) avg/{}: "
-                    "grab={:.2f}ms decode={:.2f}ms queue_wait={:.2f}ms "
+                    "grab={:.2f}ms decode={:.2f}ms slot_wait={:.2f}ms shm_write={:.2f}ms "
                     "overall_fps={:.0f} queue_size={}".format(
                         frame, _n, total_frames, n,
                         _t_grab / n * 1000,
                         _t_decode / n * 1000,
-                        _t_queue_wait / n * 1000,
+                        _t_slot_wait / n * 1000,
+                        _t_shm_write / n * 1000,
                         overall_fps,
                         Queue_raw.qsize(),
                     )
                 )
-                _t_grab = _t_decode = _t_queue_wait = 0.0
+                _t_grab = _t_decode = _t_slot_wait = _t_shm_write = 0.0
 
         elapsed = time.perf_counter() - _reader_start
         _tlog("reader done: {} frames in {:.1f}s ({:.0f} fps avg); sending {} sentinels".format(
@@ -159,6 +172,8 @@ def _frame_reader(Queue_raw, Vid, start, end, one_every, num_workers):
     finally:
         if capture is not None:
             capture.release()
+        for shm in shm_blocks:
+            shm.close()
 
 '''
 To improve the speed of the tracking, we will separate the work in 2 threads.
@@ -254,60 +269,81 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     _tlog("CPUs allocated: {} | total on node: {} | worker processes to spawn: {}".format(allocated_cpus, multiprocessing.cpu_count(), nb_cpu_extract_treat))
     Nb_images_processed=multiprocessing.Value("i",0)
 
+    _shm_H, _shm_W = Vid.shape[0], Vid.shape[1]
+    _frame_shape = (_shm_H, _shm_W, 3)
+    _frame_nbytes = _shm_H * _shm_W * 3
+    _N_SLOTS = nb_cpu_extract_treat * 3 + 4
+    _shm_blocks = []
+    _shm_names = []
+    try:
+        for _ in range(_N_SLOTS):
+            _shm = SharedMemory(create=True, size=_frame_nbytes)
+            _shm_blocks.append(_shm)
+            _shm_names.append(_shm.name)
+        _free_slots = multiprocessing.Queue()
+        for i in range(_N_SLOTS):
+            _free_slots.put(i)
+        _tlog("shm pool: {} slots x {:.1f}MB = {:.0f}MB in /dev/shm".format(
+            _N_SLOTS, _frame_nbytes / 1e6, _N_SLOTS * _frame_nbytes / 1e6))
 
-    manager = multiprocessing.Manager()
+        manager = multiprocessing.Manager()
 
-    Processes = []
+        Processes = []
 
-    # Bounded raw-frame queue: reader pushes decoded frames, workers consume.
-    # maxsize keeps memory bounded; backpressure throttles the reader when workers are busy.
-    Queue_raw = multiprocessing.Queue(maxsize=nb_cpu_extract_treat * 2)
+        Queue_raw = multiprocessing.Queue(maxsize=_N_SLOTS)
 
-    #We create one queue per cpu (-1 as one cpu will be in charge of the tracking itself)
-    Queues_cnt=multiprocessing.Queue(maxsize=100)
+        #We create one queue per cpu (-1 as one cpu will be in charge of the tracking itself)
+        Queues_cnt=multiprocessing.Queue(maxsize=100)
 
-    if type=="fixed":
-        Processes.append(multiprocessing.Process(target=Function_assign_cnts_multi.Treat_cnts_fixed, args=(Queues_cnt, Nb_images_processed, Vid, Arenas, start, end, prev_row, To_save, portion, one_every, use_Kalman, head_tail)))
-    elif type == "variable":
-        keep_entrance = Params["Keep_entrance"]
-        ID_kepts = manager.list([manager.list(sublist) for sublist in [[] for _ in Arenas]])
-        Processes.append(multiprocessing.Process(target=Function_assign_cnts_multi.Treat_cnts_variable, args=(Queues_cnt, Nb_images_processed,Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, start, end, ID_kepts, prev_row, To_save, portion, one_every, not keep_entrance, use_Kalman, head_tail)))
+        if type=="fixed":
+            Processes.append(multiprocessing.Process(target=Function_assign_cnts_multi.Treat_cnts_fixed, args=(Queues_cnt, Nb_images_processed, Vid, Arenas, start, end, prev_row, To_save, portion, one_every, use_Kalman, head_tail)))
+        elif type == "variable":
+            keep_entrance = Params["Keep_entrance"]
+            ID_kepts = manager.list([manager.list(sublist) for sublist in [[] for _ in Arenas]])
+            Processes.append(multiprocessing.Process(target=Function_assign_cnts_multi.Treat_cnts_variable, args=(Queues_cnt, Nb_images_processed,Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, start, end, ID_kepts, prev_row, To_save, portion, one_every, not keep_entrance, use_Kalman, head_tail)))
 
+        # Single reader process: opens video once, feeds raw frames to Queue_raw.
+        Processes.append(multiprocessing.Process(target=_frame_reader, args=(Queue_raw, _free_slots, _shm_names, _frame_shape, Vid, start, end, one_every, nb_cpu_extract_treat)))
 
-    # Single reader process: opens video once, feeds raw frames to Queue_raw.
-    Processes.append(multiprocessing.Process(target=_frame_reader, args=(Queue_raw, Vid, start, end, one_every, nb_cpu_extract_treat)))
+        # Worker processes: pull raw frames, run processing pipeline, push contour batches.
+        for process_ID in range(nb_cpu_extract_treat):
+            Processes.append(multiprocessing.Process(target=Function_prepare_images_multi.Image_modif, args=(Queues_cnt, Queue_raw, _free_slots, _shm_names, _frame_shape, Vid, Prem_image_to_show, mask, or_bright, process_ID)))
 
-    # Worker processes: pull raw frames, run processing pipeline, push contour batches.
-    for process_ID in range(nb_cpu_extract_treat):
-        Processes.append(multiprocessing.Process(target=Function_prepare_images_multi.Image_modif, args=(Queues_cnt, Queue_raw, Vid, Prem_image_to_show, mask, or_bright, process_ID)))
+        os.environ.pop('LD_PRELOAD', None)
+        for process in Processes:
+            process.start()
 
-    for process in Processes:
-        process.start()
+        while len([p for p in Processes if p.is_alive()])>0:
+            time.sleep(0.25)
+            failed_processes = [p for p in Processes if p.exitcode not in (None, 0)]
+            if failed_processes:
+                for process in Processes:
+                    if process.is_alive():
+                        process.terminate()
+                for process in Processes:
+                    process.join(timeout=1)
+                failed_details = ", ".join(
+                    "pid={} exitcode={}".format(process.pid, process.exitcode)
+                    for process in failed_processes
+                )
+                raise RuntimeError("Multiprocess tracking worker failed ({})".format(failed_details))
+            with Nb_images_processed.get_lock():
+                parent.timer=(Nb_images_processed.value)/(Vid.Cropped[1][1]/one_every-Vid.Cropped[1][0]/one_every)
 
-    while len([p for p in Processes if p.is_alive()])>0:
-        time.sleep(0.25)
         failed_processes = [p for p in Processes if p.exitcode not in (None, 0)]
         if failed_processes:
-            for process in Processes:
-                if process.is_alive():
-                    process.terminate()
-            for process in Processes:
-                process.join(timeout=1)
             failed_details = ", ".join(
                 "pid={} exitcode={}".format(process.pid, process.exitcode)
                 for process in failed_processes
             )
             raise RuntimeError("Multiprocess tracking worker failed ({})".format(failed_details))
-        with Nb_images_processed.get_lock():
-            parent.timer=(Nb_images_processed.value)/(Vid.Cropped[1][1]/one_every-Vid.Cropped[1][0]/one_every)
-
-    failed_processes = [p for p in Processes if p.exitcode not in (None, 0)]
-    if failed_processes:
-        failed_details = ", ".join(
-            "pid={} exitcode={}".format(process.pid, process.exitcode)
-            for process in failed_processes
-        )
-        raise RuntimeError("Multiprocess tracking worker failed ({})".format(failed_details))
+    finally:
+        for _shm in _shm_blocks:
+            try:
+                _shm.close()
+                _shm.unlink()
+            except Exception:
+                pass
 
     parent.timer = 1
     parent.show_load()
