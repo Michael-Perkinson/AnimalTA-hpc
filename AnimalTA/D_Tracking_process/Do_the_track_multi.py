@@ -21,7 +21,7 @@ def _tlog(msg):
 
 
 def _reader_backend_request():
-    backend = os.environ.get("ANIMALTA_READER_BACKEND", "auto").strip().lower()
+    backend = os.environ.get("ANIMALTA_READER_BACKEND", "opencv").strip().lower()
     aliases = {
         "cv2": "opencv",
         "opencv": "opencv",
@@ -34,8 +34,8 @@ def _reader_backend_request():
         "auto": "auto",
     }
     if backend not in aliases:
-        _tlog("unknown ANIMALTA_READER_BACKEND={!r}; using auto".format(backend))
-        return "auto"
+        _tlog("unknown ANIMALTA_READER_BACKEND={!r}; using opencv".format(backend))
+        return "opencv"
     return aliases[backend]
 
 
@@ -468,18 +468,18 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
         Queues_cnt=multiprocessing.Queue(maxsize=100)
 
         if type=="fixed":
-            Processes.append(multiprocessing.Process(target=Function_assign_cnts_multi.Treat_cnts_fixed, args=(Queues_cnt, Nb_images_processed, Vid, Arenas, start, end, prev_row, To_save, portion, one_every, use_Kalman, head_tail)))
+            Processes.append(multiprocessing.Process(name="assign-fixed", target=Function_assign_cnts_multi.Treat_cnts_fixed, args=(Queues_cnt, Nb_images_processed, Vid, Arenas, start, end, prev_row, To_save, portion, one_every, use_Kalman, head_tail)))
         elif type == "variable":
             keep_entrance = Params["Keep_entrance"]
             ID_kepts = manager.list([manager.list(sublist) for sublist in [[] for _ in Arenas]])
-            Processes.append(multiprocessing.Process(target=Function_assign_cnts_multi.Treat_cnts_variable, args=(Queues_cnt, Nb_images_processed,Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, start, end, ID_kepts, prev_row, To_save, portion, one_every, not keep_entrance, use_Kalman, head_tail)))
+            Processes.append(multiprocessing.Process(name="assign-variable", target=Function_assign_cnts_multi.Treat_cnts_variable, args=(Queues_cnt, Nb_images_processed,Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, start, end, ID_kepts, prev_row, To_save, portion, one_every, not keep_entrance, use_Kalman, head_tail)))
 
         # Single reader process: opens video once, feeds raw frames to Queue_raw.
-        Processes.append(multiprocessing.Process(target=_frame_reader, args=(Queue_raw, _free_slots, _shm_names, _frame_shape, Vid, start, end, one_every, nb_cpu_extract_treat)))
+        Processes.append(multiprocessing.Process(name="reader", target=_frame_reader, args=(Queue_raw, _free_slots, _shm_names, _frame_shape, Vid, start, end, one_every, nb_cpu_extract_treat)))
 
         # Worker processes: pull raw frames, run processing pipeline, push contour batches.
         for process_ID in range(nb_cpu_extract_treat):
-            Processes.append(multiprocessing.Process(target=Function_prepare_images_multi.Image_modif, args=(Queues_cnt, Queue_raw, _free_slots, _shm_names, _frame_shape, Vid, Prem_image_to_show, mask, or_bright, process_ID)))
+            Processes.append(multiprocessing.Process(name="prep-{}".format(process_ID), target=Function_prepare_images_multi.Image_modif, args=(Queues_cnt, Queue_raw, _free_slots, _shm_names, _frame_shape, Vid, Prem_image_to_show, mask, or_bright, process_ID)))
 
         os.environ.pop('LD_PRELOAD', None)
         for process in Processes:
@@ -495,20 +495,20 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
                 for process in Processes:
                     process.join(timeout=1)
                 failed_details = ", ".join(
-                    "pid={} exitcode={}".format(process.pid, process.exitcode)
+                    "{} pid={} exitcode={}".format(process.name, process.pid, process.exitcode)
                     for process in failed_processes
                 )
-                raise RuntimeError("Multiprocess tracking worker failed ({})".format(failed_details))
+                raise RuntimeError("Multiprocess tracking process failed ({})".format(failed_details))
             with Nb_images_processed.get_lock():
                 parent.timer=(Nb_images_processed.value)/(Vid.Cropped[1][1]/one_every-Vid.Cropped[1][0]/one_every)
 
         failed_processes = [p for p in Processes if p.exitcode not in (None, 0)]
         if failed_processes:
             failed_details = ", ".join(
-                "pid={} exitcode={}".format(process.pid, process.exitcode)
+                "{} pid={} exitcode={}".format(process.name, process.pid, process.exitcode)
                 for process in failed_processes
             )
-            raise RuntimeError("Multiprocess tracking worker failed ({})".format(failed_details))
+            raise RuntimeError("Multiprocess tracking process failed ({})".format(failed_details))
     finally:
         for _shm in _shm_blocks:
             try:
