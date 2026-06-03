@@ -83,6 +83,9 @@ def Image_modif(Queue_cnts, Queue_raw, free_slots, shm_names, frame_shape, Vid, 
     _t_preproc = _t_proc = _t_contours = 0.0
     _n_frames = 0
     _REPORT_EVERY = 500
+    direct_gray = Vid.Track[1][10][0] == 0 and not Vid.Stab[0]
+    if ID == 0 and direct_gray:
+        _tlog("direct grayscale worker path enabled")
 
     try:
         while True:
@@ -102,10 +105,11 @@ def Image_modif(Queue_cnts, Queue_raw, free_slots, shm_names, frame_shape, Vid, 
             free_slots.put(slot_idx)
 
             _t0 = time.perf_counter()
-            if color_space == "BGR":
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            elif color_space != "RGB":
+            if color_space not in ("BGR", "RGB"):
                 raise RuntimeError("Unsupported reader color space: {}".format(color_space))
+
+            if color_space == "BGR" and not direct_gray:
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
             Timg = image
 
@@ -123,7 +127,10 @@ def Image_modif(Queue_cnts, Queue_raw, free_slots, shm_names, frame_shape, Vid, 
                 Timg = Class_stabilise.find_best_position(Vid=Vid, Prem_Im=Prem_image_to_show, frame=Timg, show=False, prev_pts=prev_pts)
 
             if Vid.Track[1][10][0] == 0:
-                Timg = cv2.cvtColor(Timg, cv2.COLOR_RGB2GRAY)
+                if color_space == "BGR" and direct_gray:
+                    Timg = cv2.cvtColor(Timg, cv2.COLOR_BGR2GRAY)
+                else:
+                    Timg = cv2.cvtColor(Timg, cv2.COLOR_RGB2GRAY)
 
             if Vid.Track[1][7]:
                 Timg = image_utils.apply_brightness_correction(Timg, mask, or_bright, Vid.Mask[0])
