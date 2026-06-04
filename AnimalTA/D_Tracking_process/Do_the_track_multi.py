@@ -525,6 +525,8 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     frame_chunks = _split_frame_values(start, end, one_every, requested_readers)
     reader_count = len(frame_chunks)
     nb_cpu_extract_treat = _safe_worker_count(allocated_cpus, Vid.shape, reader_count)
+    _tlog("tracking worker config: color_mode={} stabilization={} direct_gray={}".format(
+        Vid.Track[1][10][0], Vid.Stab[0], Vid.Track[1][10][0] == 0 and not Vid.Stab[0]))
     _tlog("CPUs allocated: {} | total on node: {} | reader processes: {} | worker processes to spawn: {}".format(
         allocated_cpus, multiprocessing.cpu_count(), reader_count, nb_cpu_extract_treat))
     if reader_count > 1:

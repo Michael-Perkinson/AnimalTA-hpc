@@ -84,8 +84,9 @@ def Image_modif(Queue_cnts, Queue_raw, free_slots, shm_names, frame_shape, Vid, 
     _n_frames = 0
     _REPORT_EVERY = 500
     direct_gray = Vid.Track[1][10][0] == 0 and not Vid.Stab[0]
-    if ID == 0 and direct_gray:
-        _tlog("direct grayscale worker path enabled")
+    if ID == 0:
+        _tlog("worker path: direct_gray={} color_mode={} stabilization={}".format(
+            direct_gray, Vid.Track[1][10][0], Vid.Stab[0]))
 
     try:
         while True:
