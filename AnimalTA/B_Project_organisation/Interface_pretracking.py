@@ -580,7 +580,7 @@ class Interface(Frame):
         self.unbind_all("<Down>")
         self.unbind_all("<KeyRelease-Up>")
         self.unbind_all("<KeyRelease-Down>")
-        self.unbind_all("<MouseWheel>")
+        self.unbind_mousewheel()
         self.parent.unbind_all("<Button-1>")
         self.unbind_all("<Button-1>")
         self.unbind_all("<Delete>")
@@ -592,7 +592,7 @@ class Interface(Frame):
         self.bind_all("<Down>", self.Bot)
         self.bind_all("<KeyRelease-Up>", self.Rel_UpBot)
         self.bind_all("<KeyRelease-Down>", self.Rel_UpBot)
-        self.bind_all("<MouseWheel>", self.on_mousewheel)
+        self.bind_mousewheel()
         self.parent.bind_all("<Button-1>", self.remove_Fus)
         self.bind_all("<Button-1>", self.remove_Fus)
         self.bind_all("<Delete>", self.supr_short)
@@ -1209,9 +1209,28 @@ class Interface(Frame):
             self.vsv.set(self.vsv.get() + 1)
         self.moving_proj_speed += 1
 
+    def bind_mousewheel(self):
+        """Enable project-list wheel scrolling on Windows, macOS and X11."""
+        self.bind_all("<MouseWheel>", self.on_mousewheel)
+        self.bind_all("<Button-4>", self.on_mousewheel)
+        self.bind_all("<Button-5>", self.on_mousewheel)
+
+    def unbind_mousewheel(self):
+        """Disable every platform's project-list wheel events."""
+        self.unbind_all("<MouseWheel>")
+        self.unbind_all("<Button-4>")
+        self.unbind_all("<Button-5>")
+
     def on_mousewheel(self, event):
-        #Change the scrollbar position according to mouswheel
-        self.vsv.set(self.vsv.get() + int(-1 * (event.delta / 120)))
+        # X11 reports wheel movement as buttons 4/5; other platforms use delta.
+        if getattr(event, "num", None) == 4 or getattr(event, "delta", 0) > 0:
+            step = -1
+        elif getattr(event, "num", None) == 5 or getattr(event, "delta", 0) < 0:
+            step = 1
+        else:
+            return
+
+        self.vsv.set(self.vsv.get() + step)
         self.afficher_projects()
 
     def new_project(self):

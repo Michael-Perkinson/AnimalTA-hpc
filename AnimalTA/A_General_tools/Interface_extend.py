@@ -17,7 +17,7 @@ class Extend(Frame):
         Frame.__init__(self, parent, bd=5, **kwargs)
         self.parent=parent
         self.boss=boss
-        self.boss.unbind_all("<MouseWheel>")#We don't want the mouse wheel to move the project behind
+        self.boss.unbind_mousewheel()#We don't want the mouse wheel to move the project behind
         self.grid(sticky="nsew")
         self.Vid = Video_file
         self.type=type
@@ -386,13 +386,13 @@ class Extend(Frame):
 
     def End_of_window(self):
         self.boss.update_projects()
-        self.boss.bind_all("<MouseWheel>", self.boss.on_mousewheel)
+        self.boss.bind_mousewheel()
         self.parent.destroy()
 
 
     def rebind(self):
         self.parent.destroy()
-        self.boss.bind_all("<MouseWheel>", self.boss.on_mousewheel)
+        self.boss.bind_mousewheel()
 
 """
 root = Tk()

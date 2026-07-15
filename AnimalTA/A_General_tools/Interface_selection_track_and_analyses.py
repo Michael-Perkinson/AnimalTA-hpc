@@ -29,7 +29,7 @@ class Extend(Frame):
         self.config(**Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
         self.parent=parent
         self.boss=boss
-        self.boss.unbind_all("<MouseWheel>")#We don't want the mouse wheel to move the project behind
+        self.boss.unbind_mousewheel()#We don't want the mouse wheel to move the project behind
         self.grid()
         self.list_vid=self.boss.liste_of_videos
         self.wait_visibility()
@@ -173,8 +173,29 @@ class Extend(Frame):
         self.boss.update_projects()
         self.boss.update_selections()
         self.boss.focus_set()
-        self.boss.bind_all("<MouseWheel>", self.boss.on_mousewheel)
+        self.boss.bind_mousewheel()
         self.parent.destroy()
+
+    def _tracking_done(self, started_at):
+        """Notify the user, then close the completed tracking window."""
+        try:
+            if not self.manual_track.get() and not self.urgent_close:
+                try:
+                    if self.Params["Sound_alert_track"]:
+                        pass
+                except Exception:
+                    pass
+
+                try:
+                    if self.Params["Pop_alert_track"]:
+                        pymsgbox.alert(
+                            self.Messages["Do_track3"].format(round(float(time.time() - started_at), 2)),
+                            self.Messages["Do_track4"],
+                        )
+                except Exception:
+                    pass
+        finally:
+            self.cancel()
 
     def validate(self):
         deb=time.time()
@@ -193,19 +214,6 @@ class Extend(Frame):
             remaining = list(list_item)
             cur_vid_counter = [0]
             pos_counter = [pos]
-
-            def _tracking_done():
-                if not self.manual_track.get() and not self.urgent_close:
-                    try:
-                        if self.Params["Sound_alert_track"]:
-                            pass
-                    except:
-                        pass
-                    try:
-                        if self.Params["Pop_alert_track"]:
-                            pymsgbox.alert(self.Messages["Do_track3"].format(round(float(time.time()-deb),2)), self.Messages["Do_track4"])
-                    except:
-                        pass
 
             def _apply_fixed_result(V, succeed):
                 if succeed:
@@ -258,7 +266,7 @@ class Extend(Frame):
 
             def _step():
                 if not remaining or self.urgent_close:
-                    _tracking_done()
+                    self._tracking_done(deb)
                     return
 
                 V = remaining.pop(0)
@@ -1201,7 +1209,7 @@ class Extend(Frame):
         self.boss.update_projects()
         self.boss.update_selections()
         self.boss.focus_set()
-        self.boss.bind_all("<MouseWheel>", self.boss.on_mousewheel)
+        self.boss.bind_mousewheel()
         self.bouton.config(state="normal", background=Color_settings.My_colors.list_colors["Validate"], fg=Color_settings.My_colors.list_colors["Fg_Validate"])
         self.bouton_sel_all.config(state="normal")
         self.grab_release()
@@ -1252,7 +1260,7 @@ class Extend(Frame):
             self.urgent_close = True
             Do_the_track.urgent_close(self.list_vid_minus[self.curr_vid])
 
-        self.boss.bind_all("<MouseWheel>", self.boss.on_mousewheel)
+        self.boss.bind_mousewheel()
 
     def create_empty(self, Vid):
         #Create an empty data frame to store manual tracking data
