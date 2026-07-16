@@ -4,7 +4,7 @@ build-backend = "setuptools.backends.legacy:build"
 
 [project]
 name = "animalta"
-version = "3.2.2"
+version = "4.0.0"
 description = "AnimalTA video tracking for Open OnDemand"
 authors = [{ name = "Michael Perkinson" }]
 requires-python = ">=3.11"

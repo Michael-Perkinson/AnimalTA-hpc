@@ -5,7 +5,7 @@ From: python:3.11-slim-bookworm
     Author Michael Perkinson
     Description AnimalTA video tracking for Open OnDemand
     Upstream https://github.com/VioletteChiara/AnimalTA
-    Version 3.2.2-linux
+    Version 4.0.0-linux
 
 %post
     apt-get update && apt-get install -y --no-install-recommends \

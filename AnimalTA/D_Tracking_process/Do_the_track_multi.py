@@ -20,6 +20,31 @@ def _tlog(msg):
     print(f"[track {ts}] {msg}", file=sys.stderr, flush=True)
 
 
+def _decoded_frame_shape(image):
+    """Return the raw three-channel frame shape used by the reader pool."""
+    if image is None or not hasattr(image, "shape"):
+        raise RuntimeError("Reader did not return a decoded image")
+
+    shape = tuple(int(value) for value in image.shape)
+    if len(shape) != 3 or shape[2] != 3:
+        raise RuntimeError(
+            "Reader returned unsupported frame shape {}; expected HxWx3".format(shape)
+        )
+    return shape
+
+
+def _validate_reader_frame_shape(image, frame_shape, frame, reader_name):
+    """Fail clearly if a source segment does not match the shared-memory pool."""
+    image_shape = _decoded_frame_shape(image)
+    if image_shape != tuple(frame_shape):
+        raise RuntimeError(
+            "{} decoded frame {} with shape {}, but the shared-memory pool expects {}. "
+            "Check that concatenated source videos have matching dimensions.".format(
+                reader_name, frame, image_shape, tuple(frame_shape)
+            )
+        )
+
+
 def _reader_backend_request():
     backend = os.environ.get("ANIMALTA_READER_BACKEND", "opencv").strip().lower()
     aliases = {
@@ -297,6 +322,8 @@ def _frame_reader(Queue_raw, free_slots, shm_names, frame_shape, Vid, frame_valu
         nonlocal _t_slot_wait, _t_shm_write, _n
         nonlocal _t_grab, _t_decode
 
+        _validate_reader_frame_shape(image, frame_shape, frame, reader_name)
+
         _t0 = time.perf_counter()
         slot_idx = free_slots.get()
         _t_slot_wait += time.perf_counter() - _t0
@@ -506,6 +533,10 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     else:
         Prem_image_to_show = cv2.imread(os.path.join(Vid.Fusion[Which_part_first][1], Vid.img_list[First_frame - Vid.Fusion[Which_part_first][0]]))
 
+    # The reader writes decoded source frames before rotation or spatial crop.
+    # Vid.shape is the processed/cropped shape, so it cannot size this pool.
+    raw_frame_shape = _decoded_frame_shape(Prem_image_to_show)
+
     if type=="fixed":
         mask, or_bright, Arenas, Prem_image_to_show = Treat_simgle_image.Prepare_Vid(Vid, Prem_image_to_show, type, portion=portion, arena_interest=arena_interest)
     elif type=="variable":
@@ -524,7 +555,7 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     requested_readers = _reader_process_count(allocated_cpus, total_frame_count)
     frame_chunks = _split_frame_values(start, end, one_every, requested_readers)
     reader_count = len(frame_chunks)
-    nb_cpu_extract_treat = _safe_worker_count(allocated_cpus, Vid.shape, reader_count)
+    nb_cpu_extract_treat = _safe_worker_count(allocated_cpus, raw_frame_shape, reader_count)
     _tlog("tracking worker config: color_mode={} stabilization={} direct_gray={}".format(
         Vid.Track[1][10][0], Vid.Stab[0], Vid.Track[1][10][0] == 0 and not Vid.Stab[0]))
     _tlog("CPUs allocated: {} | total on node: {} | reader processes: {} | worker processes to spawn: {}".format(
@@ -534,9 +565,8 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
             _reader_window_size(), ",".join(str(len(chunk)) for chunk in frame_chunks)))
     Nb_images_processed=multiprocessing.Value("i",0)
 
-    _shm_H, _shm_W = Vid.shape[0], Vid.shape[1]
-    _frame_shape = (_shm_H, _shm_W, 3)
-    _frame_nbytes = _shm_H * _shm_W * 3
+    _frame_shape = raw_frame_shape
+    _frame_nbytes = int(np.prod(_frame_shape))
     _N_SLOTS = nb_cpu_extract_treat * 3 + 4
     _shm_blocks = []
     _shm_names = []
