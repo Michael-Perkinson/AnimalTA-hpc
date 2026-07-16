@@ -103,14 +103,15 @@ writable directory is needed.
 
 ## GPU (optional)
 
-GPU acceleration is under active development and not yet available in a release container.
-When ready:
-- The `--nv` flag is already in `script.sh.erb` — ensure the job lands on a GPU node
-- Add a GPU SLURM directive: `#SBATCH --gres=gpu:1`
-- Add a GPU field to `form.yml` (see the commented example in that file)
+The container includes optional CUDA dependencies, but the normal per-frame
+tracking path is CPU-based because GPU transfer overhead was slower for this
+workload. GPU initialization failures fall back safely to the CPU.
 
-Without `--nv` or on a CPU-only node, remove the `--nv` flag — Apptainer will
-warn but still run.
+To expose an NVIDIA GPU inside the container, add `--nv` to the `apptainer exec`
+command, request a GPU from the scheduler (for example,
+`#SBATCH --gres=gpu:1`), and add a corresponding field to `form.yml` if users
+should be able to choose GPU resources. CPU-only deployments should leave
+`--nv` disabled.
 
 ---
 

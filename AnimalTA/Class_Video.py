@@ -238,20 +238,39 @@ class Video:
             Rank=[ref_frame]+Rank
 
 
+        # Group frame IDs by fusion part so each part is opened only once
+        from collections import defaultdict
+        part_frames = defaultdict(list)
         for image_ID in Rank:
-
-            if len(self.Fusion) > 1:  # If the video results from concatenation
-                Which_part = [index for index, Fu_inf in enumerate(self.Fusion) if Fu_inf[0] <= image_ID][-1]
+            if len(self.Fusion) > 1:
+                part = [index for index, Fu_inf in enumerate(self.Fusion) if Fu_inf[0] <= image_ID][-1]
             else:
-                Which_part=0
+                part = 0
+            part_frames[part].append(image_ID)
 
+        frame_map = {}
+        for part, ids in part_frames.items():
+            ids_sorted = sorted(ids)
             if self.type == "Video":
-                Capture = cv2.VideoCapture(self.Fusion[Which_part][1])
-                Capture.set(cv2.CAP_PROP_POS_FRAMES, int(image_ID-self.Fusion[Which_part][0]))
-                _, frame=Capture.read()
+                Capture = cv2.VideoCapture(self.Fusion[part][1])
+                offset = self.Fusion[part][0]
+                prev_pos = -1
+                for fid in ids_sorted:
+                    target = int(fid - offset)
+                    if target != prev_pos + 1:
+                        Capture.set(cv2.CAP_PROP_POS_FRAMES, target)
+                    _, frame_map[fid] = Capture.read()
+                    prev_pos = target
+                Capture.release()
             else:
-                frame=cv2.imread(os.path.join(self.Fusion[Which_part][1], self.img_list[image_ID-self.Fusion[Which_part][0]]))
+                for fid in ids_sorted:
+                    frame_map[fid] = cv2.imread(os.path.join(
+                        self.Fusion[part][1],
+                        self.img_list[fid - self.Fusion[part][0]],
+                    ))
 
+        for image_ID in Rank:
+            frame = frame_map[image_ID]
 
             if self.Rotation == 1:
                 frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
@@ -274,14 +293,19 @@ class Video:
                 Liste_Images.append(np.copy(frame))
             i += 1
 
-        if self.type=="Video":
-            Capture.release()
-
-        Liste_Images[0] = np.median(Liste_Images, axis=0)#We calculate the median value for all pixels
-        Liste_Images[0]=Liste_Images[0].astype("uint8")
+        from AnimalTA.A_General_tools.gpu_utils import CUPY_AVAILABLE
+        if CUPY_AVAILABLE:
+            try:
+                import cupy as cp
+                stack = cp.array(np.stack(Liste_Images, axis=0))
+                median_frame = cp.median(stack, axis=0).get().astype("uint8")
+            except Exception:
+                median_frame = np.median(Liste_Images, axis=0).astype("uint8")
+        else:
+            median_frame = np.median(Liste_Images, axis=0).astype("uint8")
 
         self.Back[0]=1
-        self.Back[1] = Liste_Images[0]#Save the background
+        self.Back[1] = median_frame
 
     def draw_entrance(self, distance_max=20):#If no entrance, we propose the external borders of the arena as entrance area.
         self.Entrance=[]

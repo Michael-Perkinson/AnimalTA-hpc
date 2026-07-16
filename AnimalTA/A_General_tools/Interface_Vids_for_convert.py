@@ -108,10 +108,29 @@ class Convert(Frame):
         self.bouton_cancel.grid(row=0, column=1, sticky="w")
         self.yscrollbar.config(command=self.Liste.yview)
 
-        #Show the progression of the convertions
-        self.loading_canvas=Frame(self, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
-        self.loading_canvas.grid(row=5, columnspan=2, sticky="ew", padx=10, pady=8)
+        #Show the progression of the conversions in a scrollable area
+        scroll_outer = Frame(self, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
+        scroll_outer.grid(row=5, columnspan=2, sticky="ew", padx=10, pady=8)
+        Grid.columnconfigure(scroll_outer, 0, weight=1)
+
+        self._scroll_canvas = Canvas(scroll_outer, height=120, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
+        self._scroll_canvas.grid(row=0, column=0, sticky="ew")
+        _vsb = ttk.Scrollbar(scroll_outer, orient="vertical", command=self._scroll_canvas.yview)
+        _vsb.grid(row=0, column=1, sticky="ns")
+        self._scroll_canvas.configure(yscrollcommand=_vsb.set)
+
+        self.loading_canvas = Frame(self._scroll_canvas, **Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
+        self._scroll_window = self._scroll_canvas.create_window((0, 0), window=self.loading_canvas, anchor="nw")
         Grid.columnconfigure(self.loading_canvas, 0, weight=1)
+
+        def _on_inner_configure(event):
+            self._scroll_canvas.update_idletasks()
+            self._scroll_canvas.configure(scrollregion=self._scroll_canvas.bbox("all"))
+        def _on_canvas_resize(event):
+            self._scroll_canvas.itemconfig(self._scroll_window, width=event.width)
+
+        self.loading_canvas.bind("<Configure>", _on_inner_configure)
+        self._scroll_canvas.bind("<Configure>", _on_canvas_resize)
 
         #Minimise the AnimalTA program to allow user to do something else while converting
         self.bouton_hide = Button(self, text=self.Messages["Do_track1"], command=self.hide, **Color_settings.My_colors.Button_Base)

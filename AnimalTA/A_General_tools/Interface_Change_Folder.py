@@ -32,7 +32,7 @@ class Change_path(Frame):
         Frame.__init__(self, parent, bd=5)
         self.parent=parent
         self.boss=boss
-        self.boss.unbind_all("<MouseWheel>")#We don't want the mouse wheel to move the project behind
+        self.boss.unbind_mousewheel()#We don't want the mouse wheel to move the project behind
         self.grid()
         self.list_vid=self.boss.liste_of_videos
         self.grab_set()
@@ -220,4 +220,4 @@ class Change_path(Frame):
 
     def close(self):
         self.parent.destroy()
-        self.boss.bind_all("<MouseWheel>", self.boss.on_mousewheel)
+        self.boss.bind_mousewheel()

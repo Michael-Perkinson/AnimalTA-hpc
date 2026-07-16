@@ -5,7 +5,7 @@ From: python:3.11-slim-bookworm
     Author Michael Perkinson
     Description AnimalTA video tracking for Open OnDemand
     Upstream https://github.com/VioletteChiara/AnimalTA
-    Version 3.2.2-linux
+    Version 4.0.0-linux
 
 %post
     apt-get update && apt-get install -y --no-install-recommends \
@@ -16,10 +16,22 @@ From: python:3.11-slim-bookworm
         libxext6 \
         libxrender1 \
         libfontconfig1 \
-        ffmpeg \
         fonts-dejavu-core \
         libmediainfo0v5 \
+        curl \
+        xz-utils \
         && rm -rf /var/lib/apt/lists/*
+
+    # Install a static ffmpeg build that includes NVENC (h264_nvenc/hevc_nvenc).
+    # The Debian apt ffmpeg package is NOT built with NVENC support.
+    # The static build from johnvansickle.com includes all encoders and requires no runtime libs.
+    # To check the version or update the URL: https://johnvansickle.com/ffmpeg/
+    curl -fsSL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
+        -o /tmp/ffmpeg.tar.xz \
+        && tar -xf /tmp/ffmpeg.tar.xz -C /tmp \
+        && mv /tmp/ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ffmpeg \
+        && mv /tmp/ffmpeg-*-amd64-static/ffprobe /usr/local/bin/ffprobe \
+        && rm -rf /tmp/ffmpeg*
 
     pip install --no-cache-dir \
         opencv-python-headless>=4.8.0 \
@@ -36,7 +48,8 @@ From: python:3.11-slim-bookworm
         pandastable>=0.13.0 \
         psutil>=5.9.0 \
         pymsgbox>=1.0.9 \
-        tksheet>=7.0.0
+        tksheet>=7.0.0 \
+        "cupy-cuda12x[ctk]>=13.0.0"
 
     mkdir -p /opt/animalta
 
@@ -47,7 +60,6 @@ From: python:3.11-slim-bookworm
     export ANIMALTA_DISABLE_UPDATE=1
     export ANIMALTA_STARTUP_DEBUG=1
     export MPLBACKEND=TkAgg
-    # Ensure tkinter finds the X display provided by the VNC session
     # DISPLAY is set by the OOD script at runtime
 
 %runscript

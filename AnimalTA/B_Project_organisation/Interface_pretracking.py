@@ -580,7 +580,7 @@ class Interface(Frame):
         self.unbind_all("<Down>")
         self.unbind_all("<KeyRelease-Up>")
         self.unbind_all("<KeyRelease-Down>")
-        self.unbind_all("<MouseWheel>")
+        self.unbind_mousewheel()
         self.parent.unbind_all("<Button-1>")
         self.unbind_all("<Button-1>")
         self.unbind_all("<Delete>")
@@ -592,7 +592,7 @@ class Interface(Frame):
         self.bind_all("<Down>", self.Bot)
         self.bind_all("<KeyRelease-Up>", self.Rel_UpBot)
         self.bind_all("<KeyRelease-Down>", self.Rel_UpBot)
-        self.bind_all("<MouseWheel>", self.on_mousewheel)
+        self.bind_mousewheel()
         self.parent.bind_all("<Button-1>", self.remove_Fus)
         self.bind_all("<Button-1>", self.remove_Fus)
         self.bind_all("<Delete>", self.supr_short)
@@ -641,6 +641,8 @@ class Interface(Frame):
 
 
     def save_project_files(self):
+        if not getattr(self, 'file_to_save', None):
+            return
         shutil.copyfile(self.file_to_save, self.file_to_save + "old")
         # This is a security to ensure that the old file will not be deleted before ensurong the new one can be proprly saved
 
@@ -747,9 +749,10 @@ class Interface(Frame):
         try:
             if file==None:#If we open a new project, we beginn from
                 if new_file==None:
-                    self.file_to_open = filedialog.askopenfilename(filetypes=(("AnimalTA", "*.ata"),))
+                    self.file_to_open = filedialog.askopenfilename(initialdir=UserMessages.get_last_project_dir(), filetypes=(("AnimalTA", "*.ata"),))
                     if not self.file_to_open:
                         return
+                    UserMessages.set_last_project_dir(self.file_to_open)
                 else:
                     self.file_to_open=new_file
 
@@ -802,9 +805,10 @@ class Interface(Frame):
                 answer = question.result
 
                 if answer==0:
-                    self.folder=filedialog.askdirectory()
+                    self.folder=filedialog.askdirectory(initialdir=UserMessages.get_last_project_dir())
                     if not self.folder:
                         return
+                    UserMessages.set_last_project_dir(self.folder)
                     for V in self.liste_of_videos:
                         V.Folder=self.folder
 
@@ -1205,9 +1209,28 @@ class Interface(Frame):
             self.vsv.set(self.vsv.get() + 1)
         self.moving_proj_speed += 1
 
+    def bind_mousewheel(self):
+        """Enable project-list wheel scrolling on Windows, macOS and X11."""
+        self.bind_all("<MouseWheel>", self.on_mousewheel)
+        self.bind_all("<Button-4>", self.on_mousewheel)
+        self.bind_all("<Button-5>", self.on_mousewheel)
+
+    def unbind_mousewheel(self):
+        """Disable every platform's project-list wheel events."""
+        self.unbind_all("<MouseWheel>")
+        self.unbind_all("<Button-4>")
+        self.unbind_all("<Button-5>")
+
     def on_mousewheel(self, event):
-        #Change the scrollbar position according to mouswheel
-        self.vsv.set(self.vsv.get() + int(-1 * (event.delta / 120)))
+        # X11 reports wheel movement as buttons 4/5; other platforms use delta.
+        if getattr(event, "num", None) == 4 or getattr(event, "delta", 0) > 0:
+            step = -1
+        elif getattr(event, "num", None) == 5 or getattr(event, "delta", 0) < 0:
+            step = 1
+        else:
+            return
+
+        self.vsv.set(self.vsv.get() + step)
         self.afficher_projects()
 
     def new_project(self):
@@ -1240,13 +1263,14 @@ class Interface(Frame):
         try:
             self.file_to_save = filedialog.asksaveasfilename(defaultextension=".ata",
                                                              initialfile="Untitled_project.ata",
-                                                             initialdir=UserMessages.projects_dir_path(),
+                                                             initialdir=UserMessages.get_last_project_dir(),
                                                              filetypes=(("AnimalTA", "*.ata"),))
 
             if len(self.file_to_save) > 0:
                 file_name = os.path.basename(self.file_to_save)
                 point_pos = file_name.rfind(".")
                 self.folder = os.path.join(os.path.dirname(self.file_to_save), "Project_folder_" + file_name[:point_pos])
+                UserMessages.set_last_project_dir(self.file_to_save)
                 if not os.path.isdir(self.folder):
                     os.makedirs(self.folder)
                 else:
@@ -1292,7 +1316,7 @@ class Interface(Frame):
 
         try:
             central = int(self.vsv.get())
-            nb_visibles = self.canvas_show.winfo_height() / (130)
+            nb_visibles = self.canvas_show.winfo_height() / (150)
 
             # Ensure central is within bounds
             if central>=(len(self.liste_of_videos)-1):
@@ -1302,12 +1326,14 @@ class Interface(Frame):
             for P in range(len(self.list_projects)):
                 if self.list_projects[P].winfo_ismapped():
                     self.list_projects[P].grid_forget()
+                Grid.rowconfigure(self.canvas_rows, P, minsize=0)
 
             # Display the appropriate videos
             if len(self.liste_of_videos)>0:
                 Pos=0
                 for who in range(central, min(len(self.liste_of_videos), int(central + round(nb_visibles)) + 1)):
                     self.list_projects[Pos].change_vid(self.liste_of_videos[who],Pos - 1)
+                    Grid.rowconfigure(self.canvas_rows, Pos, minsize=150)
                     if not self.list_projects[Pos].winfo_ismapped():
                         self.list_projects[Pos].grid(row=Pos, column=0, sticky="we")
                     Pos+=1

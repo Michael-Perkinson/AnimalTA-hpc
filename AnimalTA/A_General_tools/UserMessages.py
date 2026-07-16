@@ -80,6 +80,34 @@ def projects_dir_path():
     raise OSError("AnimalTA could not create a writable projects directory")
 
 
+def _last_project_dir_file():
+    return os.path.join(user_data_dir(), "last_project_dir")
+
+
+def get_last_project_dir():
+    """Return the directory of the most recently used project, or the default projects dir."""
+    try:
+        path = _last_project_dir_file()
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                saved = f.read().strip()
+            if os.path.isdir(saved):
+                return saved
+    except OSError:
+        pass
+    return projects_dir_path()
+
+
+def set_last_project_dir(project_path):
+    """Persist the directory of the given project file or folder for next session."""
+    try:
+        directory = project_path if os.path.isdir(project_path) else os.path.dirname(project_path)
+        with open(_last_project_dir_file(), "w", encoding="utf-8") as f:
+            f.write(directory)
+    except OSError:
+        pass
+
+
 def directory_is_writable(path):
     """Return whether a directory exists and accepts file creation."""
     if not path or not os.path.isdir(path):

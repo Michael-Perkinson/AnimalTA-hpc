@@ -1,6 +1,8 @@
 import csv
 import cv2
-import math
+import sys
+import time
+import datetime as _dt
 from sklearn.cluster import KMeans
 from scipy.optimize import linear_sum_assignment
 import numpy as np
@@ -9,11 +11,20 @@ from scipy.spatial.distance import cdist
 from skimage.graph import route_through_array
 
 
+def _tlog(msg):
+    ts = _dt.datetime.now().strftime("%H:%M:%S")
+    print(f"[assign_multi {ts}] {msg}", file=sys.stderr, flush=True)
+
+
 def Treat_cnts_fixed(Queue, Nb_images_processed, Vid, Arenas, start, end, prev_row, To_save, portion, one_every, use_Kalman=False, head_tail=False):
     kalmans=[]
 
     all_NA = [False] * len(Arenas)  # Value = True if there is only "NA" in the first frame
     last_HD_pos = [[["NA", "NA"], ["NA", "NA"]] for a in Arenas]
+
+    _assign_total_s = 0.0
+    _assign_frames = 0
+    _REPORT_EVERY = 500
 
     # We write the first frame:
     all_rows = [["Frame", "Time"]]
@@ -131,23 +142,39 @@ def Treat_cnts_fixed(Queue, Nb_images_processed, Vid, Arenas, start, end, prev_r
                             final_cnts = [["NA", "NA"]] * Vid.Track[1][6][Are]
                         else:  # Else, fill with "Not_Yet"
                             final_cnts = [["Not_yet"]] * Vid.Track[1][6][Are]
-                            table_dists = []  # We make a table that will cross all distances between last known position and current targets' positions
+                            passed_inds = sum(Vid.Track[1][6][0:Are])
+                            sentinel = (Vid.shape[0] * Vid.shape[1]) / float(Vid.Scale[0])
+                            old_positions = []
+                            na_rows = []
                             for ind in range(Vid.Track[1][6][Are]):
-                                row = []
-                                passed_inds = sum(Vid.Track[1][6][0:Are])  # We find the column position of the first individual within this arena
                                 OldCoos = last_row[(2 + 2 * passed_inds + ind * 2):(4 + 2 * passed_inds + ind * 2)]
-                                for new_pt in range(len(Ar_cnts)):  # We loop through the contours that were kept
-                                    if OldCoos[0] != "NA":
-                                        dist = math.sqrt((float(OldCoos[0]) - float(Ar_cnts[new_pt][1][0])) ** 2 + (float(OldCoos[1]) - float(Ar_cnts[new_pt][1][1])) ** 2) / float(Vid.Scale[0])
-                                        if dist < (Vid.Track[1][5]):
-                                            row.append(dist)
-                                        else:
-                                            row.append((Vid.shape[0] * Vid.shape[1]) / float(Vid.Scale[0]))  # We add an impossibly high value if the point is outside of the threshold limit
-                                    else:
-                                        row.append(0)
-                                table_dists.append(row)
+                                if OldCoos[0] != "NA":
+                                    old_positions.append((float(OldCoos[0]), float(OldCoos[1])))
+                                else:
+                                    old_positions.append(None)
+                                na_rows.append(OldCoos[0] == "NA")
+                            new_centroids = [(float(c[1][0]), float(c[1][1])) for c in Ar_cnts]
+                            valid_old = [p for p in old_positions if p is not None]
+                            if valid_old:
+                                dists_valid = cdist(np.array(valid_old), np.array(new_centroids)) / float(Vid.Scale[0])
+                            table_dists = []
+                            valid_idx = 0
+                            for ind in range(Vid.Track[1][6][Are]):
+                                if na_rows[ind]:
+                                    table_dists.append([0] * len(Ar_cnts))
+                                else:
+                                    row = dists_valid[valid_idx].tolist()
+                                    row = [d if d < Vid.Track[1][5] else sentinel for d in row]
+                                    table_dists.append(row)
+                                    valid_idx += 1
 
+                            _t0 = time.perf_counter()
                             row_ind, col_ind = linear_sum_assignment(table_dists)
+                            _assign_total_s += time.perf_counter() - _t0
+                            _assign_frames += 1
+                            if _assign_frames % _REPORT_EVERY == 0:
+                                _tlog("assign step avg over last {} frames: {:.3f}ms/frame".format(
+                                    _REPORT_EVERY, _assign_total_s / _assign_frames * 1000))
 
                             to_del = []
                             for ind in range(len(row_ind)):
@@ -192,20 +219,29 @@ def Treat_cnts_fixed(Queue, Nb_images_processed, Vid, Arenas, start, end, prev_r
                                         kmeans = KMeans(n_clusters=to_split, random_state=0, n_init=5).fit(array)  # This function split the contours
                                         new_pos = kmeans.cluster_centers_
 
-                                        table_dists_corr = []
-                                        # Here we make the similar kind of calculation as before to determine which part of the spitted contours goes to which target.
                                         passed_inds = sum(Vid.Track[1][6][0:Are])
+                                        corr_old = []
+                                        corr_na = []
                                         for ind in inds:
-                                            row = []
                                             OldCoos = last_row[(2 + 2 * passed_inds + row_ind[ind] * 2):(4 + 2 * passed_inds + row_ind[ind] * 2)]
-                                            for new_center in new_pos:
-                                                if OldCoos[0] != "NA":
-                                                    dist = math.sqrt((float(OldCoos[0]) - float(new_center[0])) ** 2 + (float(OldCoos[1]) - float(new_center[1])) ** 2) / float(Vid.Scale[0])
-                                                    row.append(dist)
-                                                else:
-                                                    row.append((Vid.shape[0] * Vid.shape[1]) / float(Vid.Scale[0]))
-
-                                            table_dists_corr.append(row)
+                                            if OldCoos[0] != "NA":
+                                                corr_old.append((float(OldCoos[0]), float(OldCoos[1])))
+                                                corr_na.append(False)
+                                            else:
+                                                corr_old.append(None)
+                                                corr_na.append(True)
+                                        corr_new = new_pos
+                                        valid_corr_old = [p for p in corr_old if p is not None]
+                                        if valid_corr_old:
+                                            corr_dists = cdist(np.array(valid_corr_old), np.array(corr_new)) / float(Vid.Scale[0])
+                                        table_dists_corr = []
+                                        valid_corr_idx = 0
+                                        for is_na in corr_na:
+                                            if is_na:
+                                                table_dists_corr.append([sentinel] * len(corr_new))
+                                            else:
+                                                table_dists_corr.append(corr_dists[valid_corr_idx].tolist())
+                                                valid_corr_idx += 1
                                         row_ind2, col_ind2 = linear_sum_assignment(table_dists_corr)
 
                                         for i in range(len(row_ind2)):
@@ -421,23 +457,24 @@ def Treat_cnts_variable(Queue, Nb_images_processed, Vid, Arenas, Main_Arenas_ima
 
                     else:  # Else, fill with "Not_Yet", which means we need to associate the targets with new positions, second element is None as we don't know wether point is inside main or entrance areas
                         final_cnts = [[["Not_yet"],None,lr[2],lr[3], False] for lr in last_row[Are]]
+                        var_sentinel = (Vid.shape[0] * Vid.shape[1]) / float(Vid.Scale[0])
                         table_dists = []  # We make a table that will cross all distances between last known position and current targets' positions
                         inds = [i[0] for i in last_row[Are] if i[0] != "Out"]
                         if len(inds) > 0:
-                            for ind in inds:
-                                row = []
-                                for new_pt in range(len(Ar_cnts)):  # We loop through the contours that were kept
-                                    if ind[0] != "NA":
-                                        dist = math.sqrt((float(ind[0]) - float(Ar_cnts[new_pt][1][0])) ** 2 + (
-                                                    float(ind[1]) - float(Ar_cnts[new_pt][1][1])) ** 2) / float(
-                                            Vid.Scale[0])
-                                        if dist < Vid.Track[1][5]:
-                                            row.append(dist)
-                                        else:
-                                            row.append((Vid.shape[0] * Vid.shape[1]) / float(Vid.Scale[0]))  # We add an impossibly high value if the point is outside of the threshold limit
-                                    else:
-                                        row.append(0)
-                                table_dists.append(row)
+                            var_new_centroids = np.array([(float(c[1][0]), float(c[1][1])) for c in Ar_cnts])
+                            var_valid_old = [(float(ind[0]), float(ind[1])) for ind in inds if ind[0] != "NA"]
+                            var_na_mask = [ind[0] == "NA" for ind in inds]
+                            if var_valid_old:
+                                var_dists = cdist(np.array(var_valid_old), var_new_centroids) / float(Vid.Scale[0])
+                            var_valid_idx = 0
+                            for is_na in var_na_mask:
+                                if is_na:
+                                    table_dists.append([0] * len(Ar_cnts))
+                                else:
+                                    row = var_dists[var_valid_idx].tolist()
+                                    row = [d if d < Vid.Track[1][5] else var_sentinel for d in row]
+                                    table_dists.append(row)
+                                    var_valid_idx += 1
 
                             row_ind, col_ind = linear_sum_assignment(table_dists)
 
@@ -494,20 +531,27 @@ def Treat_cnts_variable(Queue, Nb_images_processed, Vid, Arenas, Main_Arenas_ima
                                     new_pos = kmeans.cluster_centers_
 
                                     inds = [ind for ind, cnt in enumerate(col_ind) if cnt == Cnt and final_cnts[ind][0] != "Out"]  # Which individuals are associated to this contour
-                                    table_dists_corr = []
-                                    # Here we make the similar kind of calculation as before to determine which part of the spitted contours goes to which target.
+                                    var_corr_old = []
+                                    var_corr_na = []
                                     for ind in inds:
-                                        row = []
                                         OldCoos = last_row[Are][ind]
-                                        for new_center in new_pos:
-                                            if OldCoos[0][0] != "NA":
-                                                dist = math.sqrt((float(OldCoos[0][0]) - float(new_center[0])) ** 2 + (float(OldCoos[0][1]) - float(new_center[1])) ** 2) / float(Vid.Scale[0])
-                                                row.append(dist)
-                                            else:
-                                                row.append((Vid.shape[0] * Vid.shape[1]) / float(Vid.Scale[0]))  # Impossible distance
-
-                                        table_dists_corr.append(row)
-
+                                        if OldCoos[0][0] != "NA":
+                                            var_corr_old.append((float(OldCoos[0][0]), float(OldCoos[0][1])))
+                                            var_corr_na.append(False)
+                                        else:
+                                            var_corr_old.append(None)
+                                            var_corr_na.append(True)
+                                    var_valid_corr = [p for p in var_corr_old if p is not None]
+                                    if var_valid_corr:
+                                        var_corr_dists = cdist(np.array(var_valid_corr), np.array(new_pos)) / float(Vid.Scale[0])
+                                    table_dists_corr = []
+                                    var_corr_idx = 0
+                                    for is_na in var_corr_na:
+                                        if is_na:
+                                            table_dists_corr.append([var_sentinel] * len(new_pos))
+                                        else:
+                                            table_dists_corr.append(var_corr_dists[var_corr_idx].tolist())
+                                            var_corr_idx += 1
                                     row_ind2, col_ind2 = linear_sum_assignment(table_dists_corr)
                                     for i in range(len(row_ind2)):
                                         if final_cnts[row_ind[inds[i]]][0] == ["Waiting_sep"]:
@@ -605,4 +649,3 @@ def Treat_cnts_variable(Queue, Nb_images_processed, Vid, Arenas, Main_Arenas_ima
         # After we finished the tracking, we save the remaining rows in the csv file.
         for row in all_rows:
             writer.writerow(row)
-

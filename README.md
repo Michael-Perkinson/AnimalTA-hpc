@@ -1,81 +1,104 @@
-# AnimalTA — Linux / HPC Fork
+# AnimalTA - Linux / HPC Fork
 
-> Forked from [VioletteChiara/AnimalTA](https://github.com/VioletteChiara/AnimalTA).
-> This fork adds native Linux support, an Apptainer container for HPC clusters, and
-> Open OnDemand deployment. All core tracking functionality is Violette Chiara's work.
->
-> GPU acceleration via CuPy is in development on the `gpu-acceleration` branch.
+> Based on [AnimalTA 4.0.0](https://github.com/VioletteChiara/AnimalTA), with
+> Linux, Apptainer, Open OnDemand, and HPC tracking-throughput adaptations.
+> Upstream 4.2.0 changes have not yet been integrated. All core AnimalTA
+> tracking and analysis functionality is Violette Chiara's work.
 
-AnimalTA is an easy-to-use GUI program for tracking and analysing animal movement in video.
-It supports multiple arenas, flexible background subtraction, Kalman filtering, and a full
-post-tracking analysis suite.
+AnimalTA is a graphical application for tracking and analysing animal movement
+in video. It supports multiple arenas, flexible background subtraction, Kalman
+filtering, tracking correction, and a full post-tracking analysis suite.
 
----
+## What this fork adds
 
-## Using on an HPC cluster (Linux)
+- Native Linux and macOS compatibility while retaining Windows support.
+- An Apptainer container and Open OnDemand deployment for HPC clusters.
+- Tracking workers sized to the CPU and memory allocated by the scheduler.
+- A bounded shared-memory frame pool to avoid serialising full frames between
+  processes.
+- Parallel video readers designed to reduce contention on shared filesystems.
+- OpenCV as the default tracking reader, with Decord backends available for
+  testing and workload-specific tuning.
+- Tracking diagnostics written to standard error, including the selected
+  reader and worker configuration.
+- Optional CUDA support with a safe CPU fallback. The per-frame tracking path
+  remains CPU-based because GPU transfer overhead was slower for this workload.
 
-The recommended path is the pre-built Apptainer container, which bundles all dependencies.
+## Using on an HPC cluster
 
-### 1. Get the container
+The recommended approach is the Apptainer container, which bundles the Python
+and system dependencies.
 
-Download `animalta.sif` from the [latest release](../../releases/latest), or build it yourself:
+### Build the container
+
+Download `animalta.sif` from the [latest fork release](../../releases/latest),
+or build it locally:
 
 ```bash
 apptainer build animalta.sif Apptainer.def
 ```
 
-### 2. Run
+### Run
 
 ```bash
 apptainer run animalta.sif
 ```
 
-A display is required — run this inside a VNC session or via Open OnDemand.
+AnimalTA requires a graphical display. Run it inside a VNC session or through
+Open OnDemand.
 
-### 3. Open OnDemand deployment
+### Open OnDemand deployment
 
-See [ood/DEPLOYMENT.md](ood/DEPLOYMENT.md) for the full step-by-step guide for HPC sysadmins.
+See [ood/DEPLOYMENT.md](ood/DEPLOYMENT.md) for the cluster-administrator setup
+guide.
 
----
+## Installing from source
 
-## Using on Windows
-
-Download the installer from the [original repo's releases](https://github.com/VioletteChiara/AnimalTA/releases).
-The Windows version has a one-click installer and does not require this fork.
-
----
-
-## Installing from source (Linux / macOS)
+Python 3.11 or newer and a working Tk display are required. On Linux this is
+normally X11 or Wayland through XWayland.
 
 ```bash
-pip install -r requirements.txt
+python -m pip install .
 python main.py
 ```
 
-Requires Python 3.10+ and a working display (X11 or Wayland via XWayland).
-Use `opencv-python-headless` (already specified in `requirements.txt`) to avoid
-conflicts between OpenCV's Qt backend and tkinter.
+Installing the project also provides an `animalta` command:
 
----
+```bash
+animalta
+```
 
-## Roadmap
+The project deliberately uses `opencv-python-headless` so OpenCV's Qt backend
+does not conflict with Tkinter.
 
-- **GPU acceleration** *(in progress)* — CUDA-accelerated background subtraction and contour extraction
-  to cut tracking time on GPU-equipped HPC nodes.
+## Windows
 
----
+Windows users who do not need the HPC adaptations can use the installer from
+the [upstream releases](https://github.com/VioletteChiara/AnimalTA/releases).
+
+## Tracking reader selection
+
+The default OpenCV reader is the best-tested option for the HPC workflow. The
+reader can be selected before launching AnimalTA:
+
+```bash
+export ANIMALTA_READER_BACKEND=opencv
+```
+
+Supported values are `opencv`, `auto`, `decord`, and `decord-gpu`. Advanced
+reader process, batching, and buffering controls are available through the
+`ANIMALTA_READER_*` and `ANIMALTA_DECORD_*` environment variables. Normal runs
+should not need to set them.
 
 ## Citation
 
 If you use AnimalTA in your research, please cite the original paper:
 
-> Chiara, V., & Kim, S.-Y. (2023). AnimalTA: A highly flexible and easy-to-use program
-> for tracking and analyzing animal movement in different environments.
-> *Methods in Ecology and Evolution*, 14, 1699–1707.
+> Chiara, V., & Kim, S.-Y. (2023). AnimalTA: A highly flexible and easy-to-use
+> program for tracking and analyzing animal movement in different environments.
+> *Methods in Ecology and Evolution*, 14, 1699-1707.
 > [https://doi.org/10.1111/2041-210X.14115](https://doi.org/10.1111/2041-210X.14115)
-
----
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Original copyright © 2022 Violette Chiara.
+MIT - see [LICENSE](LICENSE). Original copyright (c) 2022 Violette Chiara.

@@ -143,7 +143,6 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
 
         while Th_extract_cnts.is_alive() or Th_associate_cnts.is_alive():
             parent.timer=(AD.get()-start)/(end + one_every - start)
-            parent.show_load()
             time.sleep(0.05)
 
             overload = security_settings_track.check_memory_overload()#Avoid memory leak problems

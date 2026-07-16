@@ -20,6 +20,7 @@ from tkinter import simpledialog
 import traceback
 import time
 import sys
+import threading
 
 class Extend(Frame):
     """This frame is a list of all the videos. The user can select the ones to be tracked or analysed"""
@@ -28,7 +29,7 @@ class Extend(Frame):
         self.config(**Color_settings.My_colors.Frame_Base, bd=0, highlightthickness=0)
         self.parent=parent
         self.boss=boss
-        self.boss.unbind_all("<MouseWheel>")#We don't want the mouse wheel to move the project behind
+        self.boss.unbind_mousewheel()#We don't want the mouse wheel to move the project behind
         self.grid()
         self.list_vid=self.boss.liste_of_videos
         self.wait_visibility()
@@ -172,8 +173,29 @@ class Extend(Frame):
         self.boss.update_projects()
         self.boss.update_selections()
         self.boss.focus_set()
-        self.boss.bind_all("<MouseWheel>", self.boss.on_mousewheel)
+        self.boss.bind_mousewheel()
         self.parent.destroy()
+
+    def _tracking_done(self, started_at):
+        """Notify the user, then close the completed tracking window."""
+        try:
+            if not self.manual_track.get() and not self.urgent_close:
+                try:
+                    if self.Params["Sound_alert_track"]:
+                        pass
+                except Exception:
+                    pass
+
+                try:
+                    if self.Params["Pop_alert_track"]:
+                        pymsgbox.alert(
+                            self.Messages["Do_track3"].format(round(float(time.time() - started_at), 2)),
+                            self.Messages["Do_track4"],
+                        )
+                except Exception:
+                    pass
+        finally:
+            self.cancel()
 
     def validate(self):
         deb=time.time()
@@ -189,145 +211,145 @@ class Extend(Frame):
         self.bouton_hide.grid(row=6)
 
         if self.type=="Tracking":
-            cur_vid=0
-            for V in list_item:
+            remaining = list(list_item)
+            cur_vid_counter = [0]
+            pos_counter = [pos]
+
+            def _apply_fixed_result(V, succeed):
+                if succeed:
+                    self.list_vid_minus[V].Identities = []
+                    self.list_vid_minus[V].Sequences = []
+                    for Ar_inds in range(len(self.list_vid_minus[V].Track[1][6])):
+                        if self.track_body_parts.get() and self.list_vid_minus[V].Track[1][6][Ar_inds] == 1:
+                            for body in ["part0","part1"]:
+                                self.list_vid_minus[V].Identities.append([Ar_inds, "Ind0" + "_"+str(body),Diverse_functions.random_color()[0]])
+                                self.list_vid_minus[V].Sequences.append([Interface_sequences.full_sequence])
+                        else:
+                            for num in range(self.list_vid_minus[V].Track[1][6][Ar_inds]):
+                                self.list_vid_minus[V].Identities.append([Ar_inds, "Ind" + str(num),Diverse_functions.random_color()[0]])
+                                self.list_vid_minus[V].Sequences.append([Interface_sequences.full_sequence])
+                    self.list_vid_minus[V].saved_repartition=copy.deepcopy(self.list_vid_minus[V].Track[1][6])
+                    self.list_vid_minus[V].Identities_saved = copy.deepcopy(self.list_vid_minus[V].Identities)
+                    self.list_vid_minus[V].Sequences_saved = copy.deepcopy(self.list_vid_minus[V].Sequences)
+                    self.list_vid_minus[V].Tracked = True
+                    self.list_vid_minus[V].Track[0] = 1
+                else:
+                    self.list_vid_minus[V].clear_files()
+                    self.list_vid_minus[V].Tracked=False
+
+            def _apply_variable_result(V, succeed, Nb_targets):
+                if succeed:
+                    try:
+                        self.list_vid_minus[V].Track[1][8]=False
+                    except:
+                        self.list_vid_minus[V].Track[1].append(False)
+                    self.list_vid_minus[V].Identities = []
+                    self.list_vid_minus[V].Sequences = []
+                    min_1=False
+                    for Ar_inds in range(len(self.list_vid_minus[V].Track[1][6])):
+                        self.list_vid_minus[V].Track[1][6][Ar_inds]=len(Nb_targets[Ar_inds])
+                        for num in Nb_targets[Ar_inds]:
+                            min_1=True
+                            self.list_vid_minus[V].Identities.append([Ar_inds, "Ind" + str(num),Diverse_functions.random_color()[0]])
+                            self.list_vid_minus[V].Sequences.append([Interface_sequences.full_sequence])
+                    if not min_1:
+                        self.list_vid_minus[V].Identities.append([0, "Ind" + str(0), Diverse_functions.random_color()[0]])
+                        self.list_vid_minus[V].Sequences.append([Interface_sequences.full_sequence])
+                    self.list_vid_minus[V].saved_repartition = copy.deepcopy(self.list_vid_minus[V].Track[1][6])
+                    self.list_vid_minus[V].Identities_saved = copy.deepcopy(self.list_vid_minus[V].Identities)
+                    self.list_vid_minus[V].Sequences_saved = copy.deepcopy(self.list_vid_minus[V].Sequences)
+                    self.list_vid_minus[V].Tracked = True
+                    self.list_vid_minus[V].Track[0] = 1
+                else:
+                    self.list_vid_minus[V].clear_files()
+                    self.list_vid_minus[V].Tracked=False
+
+            def _step():
+                if not remaining or self.urgent_close:
+                    self._tracking_done(deb)
+                    return
+
+                V = remaining.pop(0)
                 try:
                     self.curr_vid=V
                     cleared=self.list_vid_minus[V].clear_files()
                     if self.list_vid_minus[V].Tracked:
-                        try:#Old version of the program did not allow to change the number of individuals, also it didi not need to save those data
+                        try:
                             self.list_vid_minus[V].Track[1][6] = self.list_vid_minus[V].saved_repartition.copy()
                         except:
                             pass
 
-                    if cleared:
-                        pos+=1
-                        self.boss.save()
-                        self.grab_set()
+                    if not cleared:
+                        _step()
+                        return
 
-                        self.loading_state.config(text= self.Messages["Video"] + " {act}/{tot}".format(act=cur_vid+1,tot=len(list_item)))
-                        cur_vid+=1
+                    pos_counter[0] += 1
+                    self.boss.save()
+                    self.grab_set()
+                    self.loading_state.config(text=self.Messages["Video"] + " {act}/{tot}".format(act=cur_vid_counter[0]+1, tot=len(list_item)))
+                    cur_vid_counter[0] += 1
 
+                    if self.manual_track.get():
+                        self.create_empty(self.list_vid_minus[V])
+                        self.list_vid_minus[V].Identities = []
+                        self.list_vid_minus[V].Sequences = []
+                        for Ar_inds in range(len(self.list_vid_minus[V].Track[1][6])):
+                            for num in range(max(1,self.list_vid_minus[V].Track[1][6][Ar_inds])):
+                                self.list_vid_minus[V].Identities.append([Ar_inds, "Ind" + str(num),Diverse_functions.random_color()[0]])
+                                self.list_vid_minus[V].Sequences.append([Interface_sequences.full_sequence])
+                        self.list_vid_minus[V].Tracked = True
+                        self.list_vid_minus[V].saved_repartition = copy.deepcopy(self.list_vid_minus[V].Track[1][6])
+                        self.list_vid_minus[V].Identities_saved=copy.deepcopy(self.list_vid_minus[V].Identities)
+                        self.list_vid_minus[V].Sequences_saved = copy.deepcopy(self.list_vid_minus[V].Sequences)
+                        _step()
+                        return
 
-                        if self.manual_track.get():
-                            #If the user wants to make a manual tracking, we just create an empty dataset.
-                            self.create_empty(self.list_vid_minus[V])
+                    if self.list_vid_minus[V].Back[0]==1:
+                        if self.list_vid_minus[V].Back[1].shape[0] != self.list_vid_minus[V].shape[0] or self.list_vid_minus[V].Back[1].shape[1] != self.list_vid_minus[V].shape[1]:
+                            self.list_vid_minus[V].Back[1] = cv2.resize(self.list_vid_minus[V].Back[1], [self.list_vid_minus[V].shape[1], self.list_vid_minus[V].shape[0]])
 
-                            #We must then assign create the identities
-                            self.list_vid_minus[V].Identities = []
-                            self.list_vid_minus[V].Sequences = []
-
-                            for Ar_inds in range(len(self.list_vid_minus[V].Track[1][6])):
-                                for num in range(max(1,self.list_vid_minus[V].Track[1][6][Ar_inds])):
-                                    self.list_vid_minus[V].Identities.append([Ar_inds, "Ind" + str(num),Diverse_functions.random_color()[0]])  # 0: identity of target, from 0 to N, 1: in which arene, 2:Name of the target, 3:Color of the target
-                                    self.list_vid_minus[V].Sequences.append([Interface_sequences.full_sequence])
-                            self.list_vid_minus[V].Tracked = True
-                            self.list_vid_minus[V].saved_repartition = copy.deepcopy(self.list_vid_minus[V].Track[1][6])
-                            self.list_vid_minus[V].Identities_saved=copy.deepcopy(self.list_vid_minus[V].Identities)
-                            self.list_vid_minus[V].Sequences_saved = copy.deepcopy(self.list_vid_minus[V].Sequences)
-
-                        else:
-                            if self.list_vid_minus[V].Back[0]==1:
-                                if self.list_vid_minus[V].Back[1].shape[0] != self.list_vid_minus[V].shape[0] or self.list_vid_minus[V].Back[1].shape[1] != self.list_vid_minus[V].shape[1]:
-                                    self.list_vid_minus[V].Back[1] = cv2.resize(self.list_vid_minus[V].Back[1], [self.list_vid_minus[V].shape[1], self.list_vid_minus[V].shape[0]])
-
-                            if self.list_vid_minus[V].Track[1][6][0]:
-                                try:
-                                    self.running="Normal"
-                                    succeed=Tracking_method_selection.Choose_method(self, Vid=self.list_vid_minus[V], type="fixed", folder=self.boss.folder, head_tail=self.track_body_parts.get())
-                                    self.running = None
-
-                                    if succeed:
-                                        self.list_vid_minus[V].Identities = []
-                                        self.list_vid_minus[V].Sequences = []
-
-                                        for Ar_inds in range(len(self.list_vid_minus[V].Track[1][6])):
-                                            if self.track_body_parts.get() and self.list_vid_minus[V].Track[1][6][Ar_inds] == 1:
-                                                for body in ["part0","part1"]:
-                                                    self.list_vid_minus[V].Identities.append([Ar_inds, "Ind0" + "_"+str(body),Diverse_functions.random_color()[0]])  # 0: identity of target, from 0 to N, 1: in which arene, 2:Name of the target, 3:Color of the target
-                                                    self.list_vid_minus[V].Sequences.append([Interface_sequences.full_sequence])
-                                            else:
-                                                for num in range(self.list_vid_minus[V].Track[1][6][Ar_inds]):
-                                                    self.list_vid_minus[V].Identities.append([Ar_inds, "Ind" + str(num),Diverse_functions.random_color()[0]])  # 0: identity of target, from 0 to N, 1: in which arene, 2:Name of the target, 3:Color of the target
-                                                    self.list_vid_minus[V].Sequences.append([Interface_sequences.full_sequence])
-                                        self.list_vid_minus[V].saved_repartition=copy.deepcopy(self.list_vid_minus[V].Track[1][6])
-                                        self.list_vid_minus[V].Identities_saved = copy.deepcopy(self.list_vid_minus[V].Identities)
-                                        self.list_vid_minus[V].Sequences_saved = copy.deepcopy( self.list_vid_minus[V].Sequences)
-                                        self.list_vid_minus[V].Tracked = True
-                                        self.list_vid_minus[V].Track[0] = 1
-                                    else:
-                                        self.list_vid_minus[V].clear_files()
-                                        self.list_vid_minus[V].Tracked=False
-
-                                except Exception as e:
-                                    question = MsgBox.Messagebox(parent=self, title=self.Messages["Do_trackWarnT1"],
-                                                                 message=self.Messages["Do_trackWarn1"].format(self.list_vid_minus[V].User_Name,e),
-                                                                 Possibilities=[self.Messages["Continue"]])
-                                    self.wait_window(question)
-
+                    if self.list_vid_minus[V].Track[1][6][0]:
+                        self.running = "Normal"
+                        def _on_fixed_done(result, exc, _V=V):
+                            self.running = None
+                            if exc is not None:
+                                question = MsgBox.Messagebox(parent=self, title=self.Messages["Do_trackWarnT1"],
+                                                             message=self.Messages["Do_trackWarn1"].format(self.list_vid_minus[_V].User_Name, exc),
+                                                             Possibilities=[self.Messages["Continue"]])
+                                self.wait_window(question)
                             else:
-                                try:
-                                    self.running = "Variable"
-                                    succeed, Nb_targets= Tracking_method_selection.Choose_method(self, Vid=self.list_vid_minus[V], folder=self.boss.folder, type="variable", head_tail=self.track_body_parts.get())
-                                    self.running = None
-                                    if succeed:
-                                        try:#For old version, Track stopped at [1][7]
-                                            self.list_vid_minus[V].Track[1][8]=False
-                                        except:
-                                            self.list_vid_minus[V].Track[1].append(False)
+                                _apply_fixed_result(_V, result)
+                            _step()
+                        self._run_tracking_threaded(
+                            lambda _V=V, _vn=cur_vid_counter[0], _vt=len(list_item): Tracking_method_selection.Choose_method(self, Vid=self.list_vid_minus[_V], type="fixed", folder=self.boss.folder, head_tail=self.track_body_parts.get(), vid_num=_vn, vid_total=_vt),
+                            _on_fixed_done,
+                        )
+                    else:
+                        self.running = "Variable"
+                        def _on_variable_done(result, exc, _V=V):
+                            self.running = None
+                            if exc is not None:
+                                question = MsgBox.Messagebox(parent=self, title=self.Messages["Do_trackWarnT1"],
+                                                             message=self.Messages["Do_trackWarn1"].format(self.list_vid_minus[_V].User_Name, exc),
+                                                             Possibilities=[self.Messages["Continue"]])
+                                self.wait_window(question)
+                            else:
+                                succeed, Nb_targets = result
+                                _apply_variable_result(_V, succeed, Nb_targets)
+                            _step()
+                        self._run_tracking_threaded(
+                            lambda _V=V, _vn=cur_vid_counter[0], _vt=len(list_item): Tracking_method_selection.Choose_method(self, Vid=self.list_vid_minus[_V], folder=self.boss.folder, type="variable", head_tail=self.track_body_parts.get(), vid_num=_vn, vid_total=_vt),
+                            _on_variable_done,
+                        )
 
-                                        self.list_vid_minus[V].Identities = []
-                                        self.list_vid_minus[V].Sequences = []
-
-                                        min_1=False
-
-
-                                        for Ar_inds in range(len(self.list_vid_minus[V].Track[1][6])):
-                                            self.list_vid_minus[V].Track[1][6][Ar_inds]=len(Nb_targets[Ar_inds])
-                                            for num in Nb_targets[Ar_inds]:
-                                                min_1=True
-                                                self.list_vid_minus[V].Identities.append([Ar_inds, "Ind" + str(num),Diverse_functions.random_color()[0]])  # 0: identity of target, from 0 to N, 1: in which arene, 2:Name of the target, 3:Color of the target
-                                                self.list_vid_minus[V].Sequences.append([Interface_sequences.full_sequence])
-                                        if not min_1:
-                                            self.list_vid_minus[V].Identities.append([0, "Ind" + str(0), Diverse_functions.random_color()[0]])
-                                            self.list_vid_minus[V].Sequences.append([Interface_sequences.full_sequence])
-                                        self.list_vid_minus[V].saved_repartition = copy.deepcopy(self.list_vid_minus[V].Track[1][6])
-                                        self.list_vid_minus[V].Identities_saved = copy.deepcopy(self.list_vid_minus[V].Identities)
-                                        self.list_vid_minus[V].Sequences_saved = copy.deepcopy(self.list_vid_minus[V].Sequences)
-                                        self.list_vid_minus[V].Tracked = True
-                                        self.list_vid_minus[V].Track[0] = 1
-                                    else:
-                                        self.list_vid_minus[V].clear_files()
-                                        self.list_vid_minus[V].Tracked=False
-
-
-                                except Exception as e:
-                                    question = MsgBox.Messagebox(parent=self, title=self.Messages["Do_trackWarnT1"],
-                                                                 message=self.Messages["Do_trackWarn1"].format(self.list_vid_minus[V].User_Name,e),
-                                                                 Possibilities=[self.Messages["Continue"]])
-                                    self.wait_window(question)
-
-                    if self.urgent_close:
-                        break
                 except Exception as e:
                     CustomDialog(self.master,
-                                 text="The video couldn't be loaded:" + str(type(e).__name__) + " – " + str(e),
+                                 text="The video couldn't be loaded:" + str(type(e).__name__) + " - " + str(e),
                                  title="Debugging")
+                    _step()
 
-            #Once the tracking is finished, we display a pop-up
-            if not self.manual_track.get() and not self.urgent_close:
-                try:
-                    if self.Params["Sound_alert_track"]:
-                        #beepy.beep(sound=6)
-                        pass
-                except:
-                    pass
-
-                try:
-                    if self.Params["Pop_alert_track"]:
-                        pymsgbox.alert(self.Messages["Do_track3"].format(round(float(time.time()-deb),2)), self.Messages["Do_track4"])
-                except:
-                    pass
+            _step()
+            return
 
 
         if self.type=="Analyses":
@@ -1187,7 +1209,7 @@ class Extend(Frame):
         self.boss.update_projects()
         self.boss.update_selections()
         self.boss.focus_set()
-        self.boss.bind_all("<MouseWheel>", self.boss.on_mousewheel)
+        self.boss.bind_mousewheel()
         self.bouton.config(state="normal", background=Color_settings.My_colors.list_colors["Validate"], fg=Color_settings.My_colors.list_colors["Fg_Validate"])
         self.bouton_sel_all.config(state="normal")
         self.grab_release()
@@ -1205,6 +1227,28 @@ class Extend(Frame):
         #Show the progress of the process
         self.load_frame.show_load(self.timer)
 
+    def _run_tracking_threaded(self, fn, on_done):
+        """Run fn() in a background thread; poll timer via after(); call on_done(result, exc) on the main thread when done."""
+        result_box = [None]
+        exc_box = [None]
+
+        def run():
+            try:
+                result_box[0] = fn()
+            except Exception as e:
+                exc_box[0] = e
+
+        def poll():
+            self.show_load()
+            if t.is_alive():
+                self.after(100, poll)
+            else:
+                on_done(result_box[0], exc_box[0])
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        self.after(100, poll)
+
     def close(self):
         if self.running == None:
             self.parent.destroy()
@@ -1216,7 +1260,7 @@ class Extend(Frame):
             self.urgent_close = True
             Do_the_track.urgent_close(self.list_vid_minus[self.curr_vid])
 
-        self.boss.bind_all("<MouseWheel>", self.boss.on_mousewheel)
+        self.boss.bind_mousewheel()
 
     def create_empty(self, Vid):
         #Create an empty data frame to store manual tracking data
