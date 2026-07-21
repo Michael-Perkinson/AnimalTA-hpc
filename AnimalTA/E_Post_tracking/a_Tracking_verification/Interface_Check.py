@@ -2020,7 +2020,9 @@ class Lecteur(Frame):
             self.Scrollbar.refresh()
 
             if Shift and not Ctrl:
-                if self.vals_in_table[row]>min(self.selected_rows):
+                if len(self.selected_rows) == 0:
+                    self.selected_rows=[self.vals_in_table[row]]
+                elif self.vals_in_table[row]>min(self.selected_rows):
                     self.selected_rows=list(range(min(self.selected_rows),self.vals_in_table[row]+1))
                 else:
                     self.selected_rows=list(range(self.vals_in_table[row], max(self.selected_rows)+1))

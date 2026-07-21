@@ -10,6 +10,7 @@ import os
 import math
 from PIL import ImageFont, ImageDraw, Image
 import copy
+from AnimalTA.D_Tracking_process.security_settings_track import _get_memory_usage_percent
 
 
 
@@ -165,7 +166,7 @@ class Lecteur(Frame):
             return
 
         self.memory_check_after = self.parent.after(1000, self.check_memory_overload)
-        if psutil.virtual_memory()._asdict()["percent"]>99.8:
+        if _get_memory_usage_percent()>99.8:
             self.parent.End_of_window()
 
             question = MsgBox.Messagebox(parent=self, title=self.Messages["TError_memory"],
