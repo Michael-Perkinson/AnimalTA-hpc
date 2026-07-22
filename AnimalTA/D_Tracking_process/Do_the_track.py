@@ -4,7 +4,6 @@ from AnimalTA.A_General_tools import UserMessages, Video_loader as VL
 from AnimalTA.D_Tracking_process import Function_prepare_images, Function_assign_cnts, security_settings_track, Treat_simgle_image
 import numpy as np
 import os
-from tkinter import *
 import threading
 import time
 import queue
@@ -27,8 +26,23 @@ To improve the speed of the tracking, we will separate the work in 2 threads.
 security_settings_track.stop_threads=False
 
 
+class _ProgressValue:
+    """Store numeric tracking progress without accessing Tk from worker threads."""
 
-def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_interest=None, test=False, head_tail=False, ref_frame=None):
+    def __init__(self, value=0.0):
+        self._value = value
+        self._lock = threading.Lock()
+
+    def get(self):
+        with self._lock:
+            return self._value
+
+    def set(self, value):
+        with self._lock:
+            self._value = value
+
+
+def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_interest=None, test=False, head_tail=False, ref_frame=None, update_ui=True, progress=None):
     '''This is the main tracking function of the program.
     parent=container (main window)
     Vid=current video
@@ -36,13 +50,6 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     prev_row=If portion is True, this correspond to the last known coordinates of the targets.
     '''
     security_settings_track.stop_threads=False
-    # Language importation
-    Language = StringVar()
-    f = open(UserMessages.resource_path("AnimalTA/Files/Language"), "r", encoding="utf-8")
-    Language.set(f.read())
-    f.close()
-    Messages = UserMessages.Mess[Language.get()]
-
     Param_file = UserMessages.settings_file_path()
     with open(Param_file, 'rb') as fp:
         Params = pickle.load(fp)
@@ -114,7 +121,7 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     Extracted_cnts = queue.Queue(maxsize=500)
     Security_break=threading.Event()
 
-    AD=DoubleVar()
+    AD = _ProgressValue()
 
     if test:
         end=start+5
@@ -122,7 +129,8 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
         Th_extract_cnts=threading.Thread(target=Function_prepare_images.Image_modif, args=(Security_break, Vid, start, end, one_every, Which_part, Prem_image_to_show, mask, or_bright, Extracted_cnts, AD, result_container, ))
         Th_extract_cnts.start()
         while Th_extract_cnts.is_alive():
-            parent.show_load()
+            if update_ui:
+                parent.show_load()
             time.sleep(0.1)
         Th_extract_cnts.join()
         result = result_container.get('result', None)
@@ -142,7 +150,11 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
 
 
         while Th_extract_cnts.is_alive() or Th_associate_cnts.is_alive():
-            parent.timer=(AD.get()-start)/(end + one_every - start)
+            value = (AD.get()-start)/(end + one_every - start)
+            if progress is None:
+                parent.timer = value
+            else:
+                progress.set(value)
             time.sleep(0.05)
 
             overload = security_settings_track.check_memory_overload()#Avoid memory leak problems
@@ -157,8 +169,12 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
                 security_settings_track.activate_super_protection = False
                 Security_break.set()
 
-        parent.timer = 1
-        parent.show_load()
+        if progress is None:
+            parent.timer = 1
+        else:
+            progress.set(1)
+        if update_ui:
+            parent.show_load()
 
         Th_extract_cnts.join()
         del security_settings_track.capture

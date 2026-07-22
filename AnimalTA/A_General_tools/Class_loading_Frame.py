@@ -100,7 +100,7 @@ class Loading(Frame):
             time.sleep(1 / fps)
 
 
-    def show_load(self, prop):
+    def show_load(self, prop, process_events=True):
         if prop>=0:
             #Show the progress of the conversion process
             self.loading_bar.delete('all')
@@ -108,4 +108,9 @@ class Loading(Frame):
             self.loading_bar.create_rectangle(0, 0, 400, heigh, fill=Color_settings.My_colors.list_colors["Loading_before"])
             self.loading_bar.create_rectangle(0, 0, prop*400, heigh, fill=Color_settings.My_colors.list_colors["Loading_after"])
             self.loading_bar.update_idletasks()
-            self.update()
+            # Synchronous callers historically rely on this to pump Tk.  The
+            # threaded tracking poll already runs inside mainloop; nesting a
+            # second event loop there causes re-entrant callbacks and damaged
+            # redraws when the window is moved.
+            if process_events:
+                self.update()

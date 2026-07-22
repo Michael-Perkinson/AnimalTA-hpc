@@ -5,7 +5,6 @@ from AnimalTA.A_General_tools import Function_draw_arenas as Dr, UserMessages, M
 from AnimalTA.D_Tracking_process import Function_prepare_images_multi, Function_assign_cnts_multi, security_settings_track, Treat_simgle_image
 import numpy as np
 import os
-from tkinter import *
 import threading
 import queue
 import pickle
@@ -238,8 +237,10 @@ def _safe_worker_count(allocated_cpus, vid_shape, reader_count):
     reader_cores = reader_count
     if reader_backend in ("auto", "decord", "decord-gpu") and decord_threads > 1:
         reader_cores = max(reader_count, reader_count * decord_threads)
-    # Reserve cores for the reader/decode pipeline and one assignment/output process.
-    reserved_cores = reader_cores + 1
+    # Reserve cores for the reader/decode pipeline, assignment/output, and the
+    # GUI/orchestration threads. Saturating the allocation prevents Tk from
+    # repainting the window while tracking is active.
+    reserved_cores = reader_cores + 2
     max_from_cpus = max(1, allocated_cpus - reserved_cores)
     mem_based = max(1, int(usable / bytes_per_worker))
     count = min(max_from_cpus, mem_based)
@@ -257,6 +258,33 @@ def _safe_worker_count(allocated_cpus, vid_shape, reader_count):
         )
     )
     return count
+
+
+def _process_entry(target, args):
+    """Run a tracking child with native OpenCV parallelism contained."""
+    cv2.setNumThreads(1)
+    target(*args)
+
+
+def _cleanup_process_resources(processes, queues, manager):
+    """Stop children and release IPC resources before returning or falling back."""
+    for process in processes:
+        if process.is_alive():
+            process.terminate()
+    for process in processes:
+        if process.pid is not None:
+            process.join(timeout=2)
+    for process_queue in queues:
+        try:
+            process_queue.cancel_join_thread()
+            process_queue.close()
+        except Exception:
+            pass
+    if manager is not None:
+        try:
+            manager.shutdown()
+        except Exception:
+            pass
 
 
 def _send_worker_sentinels(Queue_raw, num_workers):
@@ -462,20 +490,13 @@ To improve the speed of the tracking, we will separate the work in 2 threads.
 2. Target assignment and data recording
 '''
 
-def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_interest=None, head_tail=False, ref_frame=None):
+def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_interest=None, head_tail=False, ref_frame=None, update_ui=True, progress=None):
     '''This is the main tracking function of the program.
     parent=container (main window)
     Vid=current video
     portion= True if it is a rerun of the tracking over a short part of the video (for corrections)
     prev_row=If portion is True, this correspond to the last known coordinates of the targets.
     '''
-    # Language importation
-    Language = StringVar()
-    f = open(UserMessages.resource_path("AnimalTA/Files/Language"), "r", encoding="utf-8")
-    Language.set(f.read())
-    f.close()
-    Messages = UserMessages.Mess[Language.get()]
-
     Param_file = UserMessages.settings_file_path()
     with open(Param_file, 'rb') as fp:
         Params = pickle.load(fp)
@@ -563,43 +584,56 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
     if reader_count > 1:
         _tlog("reader split: window={} frames counts={}".format(
             _reader_window_size(), ",".join(str(len(chunk)) for chunk in frame_chunks)))
-    Nb_images_processed=multiprocessing.Value("i",0)
+    # Tracking is launched from a background thread so Tk's mainloop remains
+    # responsive.  Forking a live, multi-threaded Tk process can inherit locked
+    # Tcl/native-library state; use spawn consistently on every platform.
+    mp_context = multiprocessing.get_context("spawn")
+    Nb_images_processed=mp_context.Value("i",0)
 
     _frame_shape = raw_frame_shape
     _frame_nbytes = int(np.prod(_frame_shape))
     _N_SLOTS = nb_cpu_extract_treat * 3 + 4
     _shm_blocks = []
     _shm_names = []
+    manager = None
+    Processes = []
+    queues = []
+    cancelled = False
+    ID_kepts_toret = None
     try:
         for _ in range(_N_SLOTS):
             _shm = SharedMemory(create=True, size=_frame_nbytes)
             _shm_blocks.append(_shm)
             _shm_names.append(_shm.name)
-        _free_slots = multiprocessing.Queue()
+        _free_slots = mp_context.Queue()
+        queues.append(_free_slots)
         for i in range(_N_SLOTS):
             _free_slots.put(i)
         _tlog("shm pool: {} slots x {:.1f}MB = {:.0f}MB in /dev/shm".format(
             _N_SLOTS, _frame_nbytes / 1e6, _N_SLOTS * _frame_nbytes / 1e6))
 
-        manager = multiprocessing.Manager()
-
-        Processes = []
-
-        Queue_raw = multiprocessing.Queue(maxsize=_N_SLOTS)
+        Queue_raw = mp_context.Queue(maxsize=_N_SLOTS)
+        queues.append(Queue_raw)
 
         #We create one queue per cpu (-1 as one cpu will be in charge of the tracking itself)
-        Queues_cnt=multiprocessing.Queue(maxsize=100)
+        Queues_cnt=mp_context.Queue(maxsize=100)
+        queues.append(Queues_cnt)
 
         if type=="fixed":
-            Processes.append(multiprocessing.Process(name="assign-fixed", target=Function_assign_cnts_multi.Treat_cnts_fixed, args=(Queues_cnt, Nb_images_processed, Vid, Arenas, start, end, prev_row, To_save, portion, one_every, use_Kalman, head_tail)))
+            target = Function_assign_cnts_multi.Treat_cnts_fixed
+            args = (Queues_cnt, Nb_images_processed, Vid, Arenas, start, end, prev_row, To_save, portion, one_every, use_Kalman, head_tail)
+            Processes.append(mp_context.Process(name="assign-fixed", target=_process_entry, args=(target, args)))
         elif type == "variable":
+            manager = mp_context.Manager()
             keep_entrance = Params["Keep_entrance"]
             ID_kepts = manager.list([manager.list(sublist) for sublist in [[] for _ in Arenas]])
-            Processes.append(multiprocessing.Process(name="assign-variable", target=Function_assign_cnts_multi.Treat_cnts_variable, args=(Queues_cnt, Nb_images_processed,Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, start, end, ID_kepts, prev_row, To_save, portion, one_every, not keep_entrance, use_Kalman, head_tail)))
+            target = Function_assign_cnts_multi.Treat_cnts_variable
+            args = (Queues_cnt, Nb_images_processed,Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, start, end, ID_kepts, prev_row, To_save, portion, one_every, not keep_entrance, use_Kalman, head_tail)
+            Processes.append(mp_context.Process(name="assign-variable", target=_process_entry, args=(target, args)))
 
         if reader_count > 1:
-            readers_remaining = multiprocessing.Value("i", reader_count)
-            readers_lock = multiprocessing.Lock()
+            readers_remaining = mp_context.Value("i", reader_count)
+            readers_lock = mp_context.Lock()
         else:
             readers_remaining = None
             readers_lock = None
@@ -607,19 +641,22 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
         # Reader process(es): open video segments, feed raw frames to Queue_raw.
         for reader_idx, frame_chunk in enumerate(frame_chunks):
             reader_label = "reader-{}/{}".format(reader_idx + 1, reader_count) if reader_count > 1 else "reader"
-            Processes.append(multiprocessing.Process(
+            args = (
+                Queue_raw, _free_slots, _shm_names, _frame_shape, Vid,
+                frame_chunk, nb_cpu_extract_treat, reader_label,
+                readers_remaining, readers_lock,
+            )
+            Processes.append(mp_context.Process(
                 name=reader_label,
-                target=_frame_reader,
-                args=(
-                    Queue_raw, _free_slots, _shm_names, _frame_shape, Vid,
-                    frame_chunk, nb_cpu_extract_treat, reader_label,
-                    readers_remaining, readers_lock,
-                ),
+                target=_process_entry,
+                args=(_frame_reader, args),
             ))
 
         # Worker processes: pull raw frames, run processing pipeline, push contour batches.
         for process_ID in range(nb_cpu_extract_treat):
-            Processes.append(multiprocessing.Process(name="prep-{}".format(process_ID), target=Function_prepare_images_multi.Image_modif, args=(Queues_cnt, Queue_raw, _free_slots, _shm_names, _frame_shape, Vid, Prem_image_to_show, mask, or_bright, process_ID)))
+            target = Function_prepare_images_multi.Image_modif
+            args = (Queues_cnt, Queue_raw, _free_slots, _shm_names, _frame_shape, Vid, Prem_image_to_show, mask, or_bright, process_ID)
+            Processes.append(mp_context.Process(name="prep-{}".format(process_ID), target=_process_entry, args=(target, args)))
 
         os.environ.pop('LD_PRELOAD', None)
         for process in Processes:
@@ -627,6 +664,9 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
 
         while len([p for p in Processes if p.is_alive()])>0:
             time.sleep(0.25)
+            if progress is not None and progress.is_cancelled():
+                cancelled = True
+                break
             failed_processes = [p for p in Processes if p.exitcode not in (None, 0)]
             if failed_processes:
                 for process in Processes:
@@ -640,16 +680,26 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
                 )
                 raise RuntimeError("Multiprocess tracking process failed ({})".format(failed_details))
             with Nb_images_processed.get_lock():
-                parent.timer=(Nb_images_processed.value)/(Vid.Cropped[1][1]/one_every-Vid.Cropped[1][0]/one_every)
+                value = (Nb_images_processed.value)/(Vid.Cropped[1][1]/one_every-Vid.Cropped[1][0]/one_every)
+                if progress is None:
+                    parent.timer = value
+                else:
+                    progress.set(value)
 
         failed_processes = [p for p in Processes if p.exitcode not in (None, 0)]
-        if failed_processes:
+        if failed_processes and not cancelled:
             failed_details = ", ".join(
                 "{} pid={} exitcode={}".format(process.name, process.pid, process.exitcode)
                 for process in failed_processes
             )
             raise RuntimeError("Multiprocess tracking process failed ({})".format(failed_details))
+        if not cancelled and type == "variable":
+            ID_kepts_toret = [list(sublist) for sublist in ID_kepts]
     finally:
+        # Complete teardown before Choose_method can start its single-process
+        # fallback.  This also makes GUI cancellation prompt instead of waiting
+        # for the entire video and avoids concurrent writers to To_save.
+        _cleanup_process_resources(Processes, queues, manager)
         for _shm in _shm_blocks:
             try:
                 _shm.close()
@@ -657,8 +707,17 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
             except Exception:
                 pass
 
-    parent.timer = 1
-    parent.show_load()
+    if cancelled:
+        if type == "fixed":
+            return False
+        return (False, 0)
+
+    if progress is None:
+        parent.timer = 1
+    else:
+        progress.set(1)
+    if update_ui:
+        parent.show_load()
 
 
 
@@ -671,7 +730,6 @@ def Do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_i
         if type == "fixed":
             return (True)
         elif type=="variable":
-            ID_kepts_toret = [list(sublist) for sublist in ID_kepts]
             return (True,list(ID_kepts_toret))
 
 

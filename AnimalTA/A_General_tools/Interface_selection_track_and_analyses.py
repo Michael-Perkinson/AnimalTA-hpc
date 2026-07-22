@@ -309,6 +309,11 @@ class Extend(Frame):
                             self.list_vid_minus[V].Back[1] = cv2.resize(self.list_vid_minus[V].Back[1], [self.list_vid_minus[V].shape[1], self.list_vid_minus[V].shape[0]])
 
                     if self.list_vid_minus[V].Track[1][6][0]:
+                        head_tail = self.track_body_parts.get()
+                        video = self.list_vid_minus[V]
+                        folder = self.boss.folder
+                        progress = Tracking_method_selection.TrackingProgress()
+                        self._tracking_progress = progress
                         self.running = "Normal"
                         def _on_fixed_done(result, exc, _V=V):
                             self.running = None
@@ -321,10 +326,16 @@ class Extend(Frame):
                                 _apply_fixed_result(_V, result)
                             _step()
                         self._run_tracking_threaded(
-                            lambda _V=V, _vn=cur_vid_counter[0], _vt=len(list_item): Tracking_method_selection.Choose_method(self, Vid=self.list_vid_minus[_V], type="fixed", folder=self.boss.folder, head_tail=self.track_body_parts.get(), vid_num=_vn, vid_total=_vt),
+                            lambda _vid=video, _folder=folder, _vn=cur_vid_counter[0], _vt=len(list_item), _head_tail=head_tail, _progress=progress: Tracking_method_selection.Choose_method(self, Vid=_vid, type="fixed", folder=_folder, head_tail=_head_tail, vid_num=_vn, vid_total=_vt, update_ui=False, progress=_progress),
                             _on_fixed_done,
+                            progress,
                         )
                     else:
+                        head_tail = self.track_body_parts.get()
+                        video = self.list_vid_minus[V]
+                        folder = self.boss.folder
+                        progress = Tracking_method_selection.TrackingProgress()
+                        self._tracking_progress = progress
                         self.running = "Variable"
                         def _on_variable_done(result, exc, _V=V):
                             self.running = None
@@ -338,8 +349,9 @@ class Extend(Frame):
                                 _apply_variable_result(_V, succeed, Nb_targets)
                             _step()
                         self._run_tracking_threaded(
-                            lambda _V=V, _vn=cur_vid_counter[0], _vt=len(list_item): Tracking_method_selection.Choose_method(self, Vid=self.list_vid_minus[_V], folder=self.boss.folder, type="variable", head_tail=self.track_body_parts.get(), vid_num=_vn, vid_total=_vt),
+                            lambda _vid=video, _folder=folder, _vn=cur_vid_counter[0], _vt=len(list_item), _head_tail=head_tail, _progress=progress: Tracking_method_selection.Choose_method(self, Vid=_vid, folder=_folder, type="variable", head_tail=_head_tail, vid_num=_vn, vid_total=_vt, update_ui=False, progress=_progress),
                             _on_variable_done,
+                            progress,
                         )
 
                 except Exception as e:
@@ -1227,7 +1239,7 @@ class Extend(Frame):
         #Show the progress of the process
         self.load_frame.show_load(self.timer)
 
-    def _run_tracking_threaded(self, fn, on_done):
+    def _run_tracking_threaded(self, fn, on_done, progress):
         """Run fn() in a background thread; poll timer via after(); call on_done(result, exc) on the main thread when done."""
         result_box = [None]
         exc_box = [None]
@@ -1239,10 +1251,12 @@ class Extend(Frame):
                 exc_box[0] = e
 
         def poll():
-            self.show_load()
+            self.timer = progress.get()
+            self.load_frame.show_load(self.timer, process_events=False)
             if t.is_alive():
                 self.after(100, poll)
             else:
+                self._tracking_progress = None
                 on_done(result_box[0], exc_box[0])
 
         t = threading.Thread(target=run, daemon=True)
@@ -1254,10 +1268,14 @@ class Extend(Frame):
             self.parent.destroy()
         if self.running=="Normal":
             self.urgent_close = True
+            if getattr(self, "_tracking_progress", None) is not None:
+                self._tracking_progress.cancel()
             Do_the_track.urgent_close(self.list_vid_minus[self.curr_vid])
 
         elif self.running=="Variable":
             self.urgent_close = True
+            if getattr(self, "_tracking_progress", None) is not None:
+                self._tracking_progress.cancel()
             Do_the_track.urgent_close(self.list_vid_minus[self.curr_vid])
 
         self.boss.bind_mousewheel()

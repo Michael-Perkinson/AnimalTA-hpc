@@ -157,3 +157,67 @@ def test_tracking_completion_closes_when_alert_fails():
     tracking_done(tracker, 0)
 
     assert calls == ["cancel"]
+
+
+def test_background_tracking_captures_tk_state_before_worker_starts():
+    """Worker lambdas must not read Tk variables or update Tk widgets."""
+    path = REPO_ROOT / "AnimalTA/A_General_tools/Interface_selection_track_and_analyses.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "Choose_method"
+    ]
+
+    assert len(calls) == 2
+    for call in calls:
+        update_ui = next(keyword.value for keyword in call.keywords if keyword.arg == "update_ui")
+        assert isinstance(update_ui, ast.Constant) and update_ui.value is False
+        progress = next(keyword.value for keyword in call.keywords if keyword.arg == "progress")
+        assert isinstance(progress, ast.Name) and progress.id == "_progress"
+
+    worker_lambdas = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Lambda)
+        and any(call in set(ast.walk(node)) for call in calls)
+    ]
+    assert len(worker_lambdas) == 2
+    assert all(
+        not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+        )
+        for worker in worker_lambdas
+        for node in ast.walk(worker)
+    )
+
+
+def test_tracking_poll_does_not_enter_a_nested_tk_event_loop():
+    path = REPO_ROOT / "AnimalTA/A_General_tools/Interface_selection_track_and_analyses.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    extend = next(
+        node for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "Extend"
+    )
+    method = next(
+        node for node in extend.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_tracking_threaded"
+    )
+    calls = [
+        node for node in ast.walk(method)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "show_load"
+    ]
+
+    assert len(calls) == 1
+    process_events = next(
+        keyword.value for keyword in calls[0].keywords
+        if keyword.arg == "process_events"
+    )
+    assert isinstance(process_events, ast.Constant)
+    assert process_events.value is False
