@@ -105,6 +105,140 @@ def test_project_list_registers_and_removes_all_wheel_events():
     assert set(unbound) == expected
 
 
+def _make_timeline(position=10, start=0, end=20, ready=True):
+    calls = []
+    timeline = SimpleNamespace(
+        active_pos=position,
+        debut=start,
+        fin=end,
+        _reader_is_ready=lambda: ready,
+        refresh=lambda: calls.append(("refresh",)),
+        Top=SimpleNamespace(update_image=lambda frame: calls.append(("update", frame))),
+    )
+    return timeline, calls
+
+
+def test_timeline_wheel_moves_one_frame_for_all_platform_events():
+    on_mousewheel = _load_method(
+        "AnimalTA/A_General_tools/Class_Scroll_crop.py",
+        "Pers_Scroll",
+        "on_mousewheel",
+    )
+    timeline, calls = _make_timeline()
+
+    events = [
+        (SimpleNamespace(num=None, delta=120), 9),
+        (SimpleNamespace(num=None, delta=-240), 10),
+        (SimpleNamespace(num=4, delta=0), 9),
+        (SimpleNamespace(num=5, delta=0), 10),
+    ]
+    for event, expected in events:
+        assert on_mousewheel(timeline, event) == "break"
+        assert timeline.active_pos == expected
+
+    assert calls == [
+        ("refresh",), ("update", 9),
+        ("refresh",), ("update", 10),
+        ("refresh",), ("update", 9),
+        ("refresh",), ("update", 10),
+    ]
+
+
+def test_timeline_wheel_clamps_bounds_and_ignores_closed_reader():
+    on_mousewheel = _load_method(
+        "AnimalTA/A_General_tools/Class_Scroll_crop.py",
+        "Pers_Scroll",
+        "on_mousewheel",
+    )
+    timeline, calls = _make_timeline(position=5, start=5, end=8)
+
+    assert on_mousewheel(timeline, SimpleNamespace(num=4, delta=0)) == "break"
+    assert timeline.active_pos == 5
+    assert calls == []
+
+    timeline.active_pos = 8
+    assert on_mousewheel(timeline, SimpleNamespace(num=5, delta=0)) == "break"
+    assert timeline.active_pos == 8
+    assert calls == []
+
+    closed, closed_calls = _make_timeline(ready=False)
+    assert on_mousewheel(closed, SimpleNamespace(num=None, delta=-120)) == "break"
+    assert closed.active_pos == 10
+    assert closed_calls == []
+
+
+def test_timeline_registers_and_removes_all_wheel_events():
+    path = REPO_ROOT / "AnimalTA/A_General_tools/Class_Scroll_crop.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    timeline = next(
+        node for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "Pers_Scroll"
+    )
+    methods = {
+        node.name: node
+        for node in timeline.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    expected = {"<MouseWheel>", "<Button-4>", "<Button-5>"}
+
+    for method_name, call_name in (("__init__", "bind"), ("close_N_destroy", "unbind")):
+        sequences = {
+            call.args[0].value
+            for call in ast.walk(methods[method_name])
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == call_name
+            and call.args
+            and isinstance(call.args[0], ast.Constant)
+        }
+        assert expected <= sequences
+
+
+def test_tracking_correction_binds_precise_wheel_events():
+    path = REPO_ROOT / "AnimalTA/E_Post_tracking/a_Tracking_verification/Interface_Check.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    lecteur = next(
+        node for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "Lecteur"
+    )
+    methods = {
+        node.name: node
+        for node in lecteur.body
+        if isinstance(node, ast.FunctionDef)
+    }
+
+    expected = {"<MouseWheel>", "<Button-4>", "<Button-5>"}
+    for method_name in ("create_options", "afficher_table"):
+        sequences = {
+            call.args[0].value
+            for call in ast.walk(methods[method_name])
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "bind"
+            and call.args
+            and isinstance(call.args[0], ast.Constant)
+        }
+        assert expected <= sequences
+
+
+def test_tracking_correction_wheel_delegates_to_shared_timeline():
+    on_mousewheel = _load_method(
+        "AnimalTA/E_Post_tracking/a_Tracking_verification/Interface_Check.py",
+        "Lecteur",
+        "On_mousewheel",
+    )
+    event = SimpleNamespace(num=5, delta=0)
+    calls = []
+    viewer = SimpleNamespace(
+        Scrollbar=SimpleNamespace(
+            on_mousewheel=lambda received: calls.append(received) or "break"
+        )
+    )
+
+    assert on_mousewheel(viewer, event) == "break"
+    assert calls == [event]
+
+
 def test_tracking_completion_closes_after_alert():
     calls = []
     tracking_done = _load_method(

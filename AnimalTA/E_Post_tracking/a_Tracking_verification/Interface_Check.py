@@ -321,10 +321,7 @@ class Lecteur(Frame):
 
 
     def On_mousewheel(self, event):
-        if (int(self.Scrollbar.active_pos)-int(event.delta / 120) >= round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every) and event.delta>0) or (event.delta<0 and int(self.Scrollbar.active_pos)-int(event.delta / 120) <= round(self.Vid.Cropped[1][1] / self.Vid_Lecteur.one_every)):
-            self.Scrollbar.active_pos=self.Scrollbar.active_pos-int(event.delta / 120)
-            self.Scrollbar.refresh()
-            self.Vid_Lecteur.update_image(self.Scrollbar.active_pos)
+        return self.Scrollbar.on_mousewheel(event)
 
     def go_next_ID(self, *args):
         self.selected_ind+=1
@@ -1066,6 +1063,9 @@ class Lecteur(Frame):
                          **Color_settings.My_colors.Scale_Base)
         self.vsb.grid(row=3, column=2, sticky="ns")
         self.vsb.bind("<ButtonRelease-1>", self.move_tree)
+        self.vsb.bind("<MouseWheel>", self.On_mousewheel)
+        self.vsb.bind("<Button-4>", self.On_mousewheel)
+        self.vsb.bind("<Button-5>", self.On_mousewheel)
 
         self.vsbx = Scale(table, orient="horizontal",
                           command=partial(self.afficher_table, None, True), variable=self.Xpos, from_=1,
@@ -1393,6 +1393,8 @@ class Lecteur(Frame):
             self.tree.bind("<Control-Shift-ButtonRelease>", self.selectItem)
             self.tree.bind("<Button-3>", partial(self.selectItem, Right=True))
             self.tree.bind("<MouseWheel>", self.On_mousewheel)
+            self.tree.bind("<Button-4>", self.On_mousewheel)
+            self.tree.bind("<Button-5>", self.On_mousewheel)
             self.tree.bind("<Control-c>", self.copy_data)
             self.tree.bind("<Control-v>", self.paste_data)
             self.tree.focus_set()

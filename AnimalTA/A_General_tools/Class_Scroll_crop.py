@@ -43,6 +43,9 @@ class Pers_Scroll(Canvas):
             self.bind("<Motion>", self.afficher_frame)#Display a little square/info to tell the user what is the frame number under the mouse cursor
             self.bind("<Button-1>", self.activate_position)#Change the current frame
             self.bind("<B1-Motion>", self.move_position)#Change the current frame
+            self.bind("<MouseWheel>", self.on_mousewheel)
+            self.bind("<Button-4>", self.on_mousewheel)
+            self.bind("<Button-5>", self.on_mousewheel)
 
     def _widget_exists(self, widget):
         if widget is None:
@@ -69,6 +72,33 @@ class Pers_Scroll(Canvas):
         self.unbind("<Motion>")
         self.unbind("<Button-1>")
         self.unbind("<B1-Motion>")
+        self.unbind("<MouseWheel>")
+        self.unbind("<Button-4>")
+        self.unbind("<Button-5>")
+
+    def on_mousewheel(self, event):
+        """Move exactly one displayed frame for Windows, macOS, and X11 wheels."""
+        if not self._reader_is_ready():
+            return "break"
+
+        button = getattr(event, "num", None)
+        delta = getattr(event, "delta", 0)
+        if button == 4 or (button not in (4, 5) and delta > 0):
+            step = -1
+        elif button == 5 or (button not in (4, 5) and delta < 0):
+            step = 1
+        else:
+            return "break"
+
+        new_pos = min(self.fin, max(self.debut, int(self.active_pos) + step))
+        if new_pos != self.active_pos:
+            self.active_pos = new_pos
+            self.refresh()
+            self.Top.update_image(self.active_pos)
+
+        # Prevent Treeview/Scale class bindings from adding their own,
+        # platform-dependent scroll after this precise frame step.
+        return "break"
 
     def refresh(self, *args):
         #Draw/Redraw the timeline, each time something is modified or that the containing widget size changes, the timeline is redraw.
