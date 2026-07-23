@@ -1,8 +1,7 @@
 """Smoke tests for Linux/macOS compatibility.
 
-Run with: python -m pytest test_linux_compat.py -v
+Run with: python -m pytest tests/test_linux_compat.py -v
 """
-import sys
 import ast
 import os
 import tempfile
@@ -406,24 +405,52 @@ def test_row_video_previews_do_not_use_opencv_windows():
     assert not violations, "OpenCV GUI calls found:\n" + "\n".join(violations)
 
 
-def test_tracking_modules_do_not_print_debug_output():
-    """Tracking modules should not emit stray debug prints in normal runs."""
+def test_tracking_diagnostics_are_limited_to_stderr_logger():
+    """Tracking modules may emit documented diagnostics, but not stray prints."""
     paths = [
         os.path.join(ANIMALTA_DIR, "D_Tracking_process", "Tracking_method_selection.py"),
+        os.path.join(ANIMALTA_DIR, "D_Tracking_process", "Do_the_track.py"),
         os.path.join(ANIMALTA_DIR, "D_Tracking_process", "Do_the_track_multi.py"),
         os.path.join(ANIMALTA_DIR, "D_Tracking_process", "Function_prepare_images_multi.py"),
+        os.path.join(ANIMALTA_DIR, "D_Tracking_process", "Function_assign_cnts.py"),
         os.path.join(ANIMALTA_DIR, "D_Tracking_process", "Function_assign_cnts_multi.py"),
     ]
     violations = []
 
     for path in paths:
         with open(path, encoding="utf-8") as fh:
-            for i, line in enumerate(fh, 1):
-                stripped = line.strip()
-                if "print(" in stripped and not stripped.startswith("#"):
-                    violations.append(f"{path}:{i}: {stripped}")
+            tree = ast.parse(fh.read(), filename=path)
 
-    assert not violations, "Debug print statements found:\n" + "\n".join(violations)
+        logger = next(
+            (node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_tlog"),
+            None,
+        )
+        allowed_prints = {
+            id(node)
+            for node in ast.walk(logger) if logger is not None
+            and isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "print"
+        }
+
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+            ):
+                continue
+            stderr_keyword = next((kw.value for kw in node.keywords if kw.arg == "file"), None)
+            uses_stderr = (
+                isinstance(stderr_keyword, ast.Attribute)
+                and isinstance(stderr_keyword.value, ast.Name)
+                and stderr_keyword.value.id == "sys"
+                and stderr_keyword.attr == "stderr"
+            )
+            if id(node) not in allowed_prints or not uses_stderr:
+                violations.append(f"{path}:{node.lineno}")
+
+    assert not violations, "Stray tracking print statements found:\n" + "\n".join(violations)
 
 
 def test_reader_update_image_returns_none_after_close():
@@ -534,11 +561,6 @@ def test_no_utf8_bom():
 
 def test_animalta_importable():
     """Verify the package imports without pulling in Windows-only modules."""
-    try:
-        from AnimalTA.Main_interface import start_mainframe  # noqa: F401
-    except Exception as e:
-        msg = str(e)
-        if "winsound" in msg or "winreg" in msg or "windll" in msg:
-            raise AssertionError(f"Windows-only import at package level: {e}")
-        # X11/display errors (pyautogui, Xlib) are acceptable in headless environments;
-        # they will be resolved at runtime when DISPLAY is set by the VNC session.
+    from AnimalTA.Main_interface import start_mainframe
+
+    assert callable(start_mainframe)

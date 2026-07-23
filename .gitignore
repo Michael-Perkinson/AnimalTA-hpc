@@ -16,6 +16,7 @@ tmp_pytest_*/
 
 # Private working notes (kept locally, not for public repo)
 GPU_ACCELERATION.md
+/local/
 
 # Python
 __pycache__/

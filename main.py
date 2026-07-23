@@ -4,8 +4,10 @@ import multiprocessing
 import os
 import sys
 
-if __name__ == '__main__':
-    multiprocessing.set_start_method('spawn')
+
+def main():
+    """Start AnimalTA with consistent CLI and multiprocessing setup."""
+    multiprocessing.set_start_method("spawn")
     multiprocessing.freeze_support()
     compat.startup_debug(f"cli entry; platform={sys.platform} DISPLAY={os.environ.get('DISPLAY', '<unset>')}")
     from AnimalTA.A_General_tools import gpu_utils
@@ -23,3 +25,7 @@ if __name__ == '__main__':
         )
         _root.destroy()
     start_mainframe()
+
+
+if __name__ == '__main__':
+    main()
