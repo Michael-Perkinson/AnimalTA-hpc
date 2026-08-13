@@ -2,6 +2,7 @@
 /shelf/
 /workspace.xml
 .idea/
+.vscode/
 
 # Claude Code
 .claude/
@@ -24,11 +25,24 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.pytest-*/
+pytest-*/
+.localpytesttmp/
+.test-tmp/
+test-tmp*/
+tmp_pytest_*/
+.ruff_cache/
 .mypy_cache/
 .coverage
 .coverage.*
 htmlcov/
 coverage.xml
+
+# Temporary files and folders
+tmp/
+temp/
+tmp_*/
+temp_*/
 
 # Virtual environments
 venv/
