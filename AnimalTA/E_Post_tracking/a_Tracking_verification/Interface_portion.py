@@ -1,4 +1,6 @@
 from tkinter import *
+from tkinter import messagebox
+import threading
 import cv2
 import numpy as np
 from AnimalTA.D_Tracking_process import Do_the_track
@@ -6,6 +8,29 @@ from AnimalTA.E_Post_tracking import Coos_loader_saver as CoosLS
 from AnimalTA.A_General_tools import Class_Lecteur, UserMessages, Class_stabilise, Color_settings, Class_loading_Frame
 from AnimalTA.C_Pretracking import Interface_back, Interface_arenas
 from AnimalTA.C_Pretracking.a_Parameters_track import Interface_parameters_track
+
+
+class _PortionProgress:
+    """Progress/cancellation state shared with the background tracker."""
+
+    def __init__(self):
+        self._value = 0.0
+        self._lock = threading.Lock()
+        self._cancelled = threading.Event()
+
+    def get(self):
+        with self._lock:
+            return self._value
+
+    def set(self, value):
+        with self._lock:
+            self._value = value
+
+    def cancel(self):
+        self._cancelled.set()
+
+    def is_cancelled(self):
+        return self._cancelled.is_set()
 
 
 class Show(Frame):
@@ -118,6 +143,9 @@ class Show(Frame):
 
     def leave(self):
         #Close without applying any modifications to the original trackings
+        if self._tracking_is_running():
+            self._cancel_tracking()
+            return
         self.Vid_Lecteur.proper_close()
         self.boss.PortionWin.grab_release()
         self.boss.PortionWin.destroy()
@@ -125,6 +153,9 @@ class Show(Frame):
         self.destroy()
 
     def End_of_window(self):
+        if self._tracking_is_running():
+            self._cancel_tracking()
+            return
         self.leave()
 
     def validate_correction(self):
@@ -137,39 +168,120 @@ class Show(Frame):
 
     def redo_track(self):
         #Re-run the tracking
+        if self._tracking_is_running():
+            return
         self.B_change_stab.config(state="disable")
         self.B_change_back.config(state="disable")
         self.B_change_mask.config(state="disable")
         self.B_change_params.config(state="disable")
         self.B_redo_track.config(state="disable")
         self.B_validate_track.config(state="disable")
-        self.B_cancel.config(state="disable")
-        self.Vid_Lecteur.proper_close()#We ensure the last decord is well closed
-
-        if self.Vid.Track[1][8]:
-            Do_the_track.Do_tracking(self, self.Vid, self.Folder, type="fixed", portion=True, prev_row=self.prev_row, arena_interest=self.Arena, ref_frame=self.First_frame)
-        else:
-            Do_the_track.Do_tracking(self, self.Vid, self.Folder, type="variable", portion=True, prev_row=self.prev_row, arena_interest=self.Arena, ref_frame=self.First_frame)
-
-        self.Coos, _ = CoosLS.load_coos(self.Vid, TMP=True, location=self)
-
-        self.B_change_stab.config(state="normal")
-        self.B_change_back.config(state="normal")
-        self.B_change_mask.config(state="normal")
-        self.B_change_params.config(state="normal")
+        # Keep Cancel available while workers are running.  It requests a
+        # cooperative stop and the window is only destroyed after both
+        # workers have terminated.
         self.B_cancel.config(state="normal")
+        self.Vid_Lecteur.proper_close()#We ensure the last decord is well closed
+        self._tracking_progress = _PortionProgress()
+        self._tracking_result = None
+        self._tracking_error = None
+        self._tracking_cancelled = False
+        self._close_after_tracking = False
+        tracking_type = "fixed" if self.Vid.Track[1][8] else "variable"
 
-        self.B_redo_track.config(state="normal")
-        self.B_validate_track.config(background=Color_settings.My_colors.list_colors["Button_done"], fg=Color_settings.My_colors.list_colors["Fg_Button_done"])
+        def run_tracking():
+            try:
+                self._tracking_result = Do_the_track.Do_tracking(
+                    self, self.Vid, self.Folder, type=tracking_type,
+                    portion=True, prev_row=self.prev_row,
+                    arena_interest=self.Arena, ref_frame=self.First_frame,
+                    update_ui=False, progress=self._tracking_progress,
+                )
+            except BaseException as error:
+                self._tracking_error = error
 
-        self.B_validate_track.config(state="normal")
-        self.B_validate_track.config(background=Color_settings.My_colors.list_colors["Validate"], fg=Color_settings.My_colors.list_colors["Fg_Validate"])
+        self._tracking_thread = threading.Thread(target=run_tracking, daemon=True)
+        self._tracking_thread.start()
+        self._poll_tracking(tracking_type)
 
-        self.Vid_Lecteur = Class_Lecteur.Lecteur(self, self.Vid, ecart=5, First_frame=self.First_frame)
+    def _tracking_is_running(self):
+        thread = getattr(self, "_tracking_thread", None)
+        return thread is not None and thread.is_alive()
+
+    def _cancel_tracking(self):
+        self._tracking_cancelled = True
+        self._close_after_tracking = True
+        progress = getattr(self, "_tracking_progress", None)
+        if progress is not None:
+            progress.cancel()
+        Do_the_track.urgent_close(self.Vid)
+        self.B_cancel.config(state="disable")
+
+    def _poll_tracking(self, tracking_type):
+        progress = self._tracking_progress
+        self.timer = progress.get()
+        self.load_frame.show_load(self.timer, process_events=False)
+        if self._tracking_is_running():
+            self.after(75, lambda: self._poll_tracking(tracking_type))
+            return
+
+        self._tracking_thread.join()
+        error = self._tracking_error
+        result = self._tracking_result
+        cancelled = self._tracking_cancelled or progress.is_cancelled()
+        self._tracking_thread = None
+        self._tracking_progress = None
+
+        succeeded = (
+            not cancelled and error is None and
+            ((tracking_type == "fixed" and result is True) or
+             (tracking_type == "variable" and isinstance(result, tuple) and result[0] is True))
+        )
+        if succeeded:
+            try:
+                self.Coos, _ = CoosLS.load_coos(self.Vid, TMP=True, location=self)
+            except BaseException as load_error:
+                error = load_error
+                succeeded = False
+
+        if cancelled and getattr(self, "_close_after_tracking", False):
+            self.leave()
+            return
+
+        try:
+            self._restore_portion_reader()
+        except BaseException as reader_error:
+            if error is None:
+                error = reader_error
+            succeeded = False
+
+        self._restore_portion_controls(succeeded)
+        if error is not None and not cancelled:
+            messagebox.showerror(
+                self.Messages["Do_trackWarnT1"],
+                self.Messages["Do_trackWarn1"].format(self.Vid.User_Name, error),
+                parent=self,
+            )
+
+    def _restore_portion_controls(self, succeeded):
+        for button in (self.B_change_stab, self.B_change_back,
+                       self.B_change_mask, self.B_change_params,
+                       self.B_redo_track, self.B_cancel):
+            button.config(state="normal")
+        self.B_validate_track.config(state="normal" if succeeded else "disable")
+        if succeeded:
+            self.B_validate_track.config(
+                background=Color_settings.My_colors.list_colors["Validate"],
+                fg=Color_settings.My_colors.list_colors["Fg_Validate"],
+            )
+
+    def _restore_portion_reader(self):
+        self.Vid_Lecteur = Class_Lecteur.Lecteur(
+            self, self.Vid, ecart=5, First_frame=self.First_frame
+        )
         self.Vid_Lecteur.grid(row=0, column=0, sticky="nsew")
         self.Scrollbar = self.Vid_Lecteur.Scrollbar
         self.Vid_Lecteur.canvas_video.update()
-        self.Vid_Lecteur.update_image(self.Vid_Lecteur.to_sub+1)
+        self.Vid_Lecteur.update_image(self.Vid_Lecteur.to_sub + 1)
         self.Vid_Lecteur.bindings()
         self.Scrollbar.refresh()
 

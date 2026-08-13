@@ -7,8 +7,18 @@ from AnimalTA.A_General_tools import Class_stabilise, UserMessages, Video_loader
 from AnimalTA.D_Tracking_process import security_settings_track
 import os
 import pickle
+import queue
 
-def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_image_to_show, mask, or_bright, Extracted_cnts, AD, result_container={}):
+def _release_capture():
+    capture = getattr(security_settings_track, "capture", None)
+    security_settings_track.capture = None
+    if capture is not None:
+        del capture
+
+
+def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_image_to_show, mask, or_bright, Extracted_cnts, AD, result_container=None, worker_state=None):
+    if result_container is None:
+        result_container = {}
     if Vid.Stab[0]:
         prev_pts = Vid.Stab[1]
     last_grey=None#We keep here the last grey image for flicker correction
@@ -33,18 +43,21 @@ def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_ima
 
 
         if security_settings_track.stop_threads:
-            del security_settings_track.capture
             break
 
         if security_settings_track.activate_super_protection:
-            del security_settings_track.capture
-            Security_break.wait()
+            _release_capture()
+            while not Security_break.wait(timeout=0.1):
+                if security_settings_track.stop_threads:
+                    break
+            if security_settings_track.stop_threads:
+                break
             security_settings_track.capture = decord.VideoReader(Vid.Fusion[Which_part][1])
             security_settings_track.activate_super_protection = False
 
         if len(Vid.Fusion) > 1 and Which_part < (len(Vid.Fusion) - 1) and frame >= (Vid.Fusion[Which_part + 1][0]):
             Which_part += 1
-            del security_settings_track.capture
+            _release_capture()
             security_settings_track.capture = decord.VideoReader(Vid.Fusion[Which_part][1])
             security_settings_track.capture.seek(0)
             security_settings_track.activate_protection=False
@@ -169,7 +182,14 @@ def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_ima
         #             f.write(f"{species} {x_center:.6f} {y_center:.6f} {w_norm:.6f} {h_norm:.6f}\n")
 
 
-        Extracted_cnts.put([frame,kept_cnts])
+        while not security_settings_track.stop_threads:
+            try:
+                Extracted_cnts.put([frame,kept_cnts], timeout=0.1)
+                if worker_state is not None:
+                    worker_state.increment("produced_frames")
+                break
+            except queue.Full:
+                continue
 
     result_container['result'] = time.time()-deb
 

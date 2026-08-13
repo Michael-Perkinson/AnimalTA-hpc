@@ -10,6 +10,7 @@ from scipy.spatial.distance import cdist
 from skimage.graph import route_through_array
 import sys
 import datetime as _dt
+import queue
 
 def _tlog(msg):
     ts = _dt.datetime.now().strftime("%H:%M:%S")
@@ -24,7 +25,7 @@ def _build_dist_table(old_positions, new_centroids, scale, threshold, sentinel):
     dists[dists >= threshold] = sentinel
     return dists.tolist()
 
-def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Th_extract_cnts, To_save, portion, one_every, AD, use_Kalman=False, head_tail=False):
+def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Th_extract_cnts, To_save, portion, one_every, AD, use_Kalman=False, head_tail=False, worker_state=None):
     kalmans=[]
 
     all_NA = [False] * len(Arenas)  # Value = True if there is only "NA" in the first frame
@@ -63,6 +64,8 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Th_extra
 
 
     with open(To_save, 'w', newline='', encoding="utf-8") as file:
+        if worker_state is not None:
+            worker_state.mark_output_opened()
 
         writer = csv.writer(file, delimiter=";")
 
@@ -70,7 +73,12 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Th_extra
             if security_settings_track.stop_threads:
                 break
 
-            frame, kept_cnts = Extracted_cnts.get()
+            try:
+                frame, kept_cnts = Extracted_cnts.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if worker_state is not None:
+                worker_state.increment("assigned_frames")
             AD.set(frame)
             # Once all the contours are filtered, we associate them to arenas (i.e. in which arenas are they)
             new_row = []#The nest row that will be saved in the csv file
@@ -376,7 +384,7 @@ def Treat_cnts_fixed(Vid, Arenas, start, end, prev_row, Extracted_cnts, Th_extra
 
 
 
-def Treat_cnts_variable(Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, start, end, prev_row, Extracted_cnts, Th_extract_cnts, To_save, portion, one_every, AD, specify_entrance, use_Kalman=False, head_tail=False):
+def Treat_cnts_variable(Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, start, end, prev_row, Extracted_cnts, Th_extract_cnts, To_save, portion, one_every, AD, specify_entrance, use_Kalman=False, head_tail=False, worker_state=None):
     delay_lost=5 #How much frames do we wait before considering a target left the entrance area if it is lost
     delay_found=3#How much time of existance do we consider for a target to be real (inside entrance area)
     all_NA = [True] * len(Arenas)  # Value = True if there is only "NA" in the first frame
@@ -391,12 +399,19 @@ def Treat_cnts_variable(Vid, Arenas, Main_Arenas_image, Main_Arenas_Bimage, star
     tmp_rows=[]
 
     with open(To_save, 'w', newline='', encoding="utf-8") as file:
+        if worker_state is not None:
+            worker_state.mark_output_opened()
         writer = csv.writer(file, delimiter=";")
 
         while Th_extract_cnts.is_alive() or Extracted_cnts.qsize() > 0:  # While we are still loading images or there are some extracted images that have not been associated yet
             if security_settings_track.stop_threads:
                 break
-            frame, kept_cnts = Extracted_cnts.get()
+            try:
+                frame, kept_cnts = Extracted_cnts.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if worker_state is not None:
+                worker_state.increment("assigned_frames")
             AD.set(frame)
             # Once all the contours are filtered, we associate them to arenas (i.e. in which arenas are they)
 

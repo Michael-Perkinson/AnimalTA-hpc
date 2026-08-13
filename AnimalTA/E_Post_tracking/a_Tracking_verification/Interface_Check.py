@@ -17,6 +17,133 @@ import os
 from functools import partial
 import PIL
 import pickle
+import tempfile
+
+
+def _discard_undo_snapshot(snapshot):
+    path = getattr(snapshot, "filename", None)
+    if path is None:
+        return
+    try:
+        snapshot.flush()
+    except (AttributeError, OSError):
+        pass
+    mapping = getattr(snapshot, "_mmap", None)
+    if mapping is not None:
+        try:
+            mapping.close()
+        except (AttributeError, OSError):
+            pass
+    try:
+        del snapshot
+        if os.path.isfile(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+def prepare_interpolation(Coos, selected_ind, selected_rows, include_old=True, materialize=True):
+    """Prepare a safe local interpolation without changing ``Coos``.
+
+    The selected rows must form one contiguous interval.  If the user selects
+    only missing rows, the nearest known coordinates outside the selection are
+    used as anchors.  Only missing rows inside the selection are changed; this
+    avoids turning variable-target absence outside the requested range into an
+    animal presence.
+    """
+    try:
+        rows = sorted({int(row) for row in selected_rows})
+    except (TypeError, ValueError):
+        return {"changed": 0, "reason": "invalid_selection"}
+
+    if not rows:
+        return {"changed": 0, "reason": "no_selection"}
+    if rows != list(range(rows[0], rows[-1] + 1)):
+        return {"changed": 0, "reason": "non_contiguous"}
+    try:
+        trajectory = Coos[selected_ind]
+        if rows[0] < 0 or rows[-1] >= len(trajectory):
+            return {"changed": 0, "reason": "invalid_selection"}
+        valid_rows = [row for row in rows if trajectory[row][0] != -1000]
+    except (IndexError, TypeError):
+        return {"changed": 0, "reason": "invalid_selection"}
+
+    # A user commonly selects only the missing rows.  Use the nearest known
+    # coordinate on either side as interpolation anchors, without changing
+    # anything outside the user's selection.
+    left_anchor = rows[0] if trajectory[rows[0]][0] != -1000 else None
+    right_anchor = rows[-1] if trajectory[rows[-1]][0] != -1000 else None
+    if left_anchor is None:
+        for row in range(rows[0] - 1, -1, -1):
+            if trajectory[row][0] != -1000:
+                left_anchor = row
+                break
+        if left_anchor is None and valid_rows:
+            left_anchor = valid_rows[0]
+    if right_anchor is None:
+        for row in range(rows[-1] + 1, len(trajectory)):
+            if trajectory[row][0] != -1000:
+                right_anchor = row
+                break
+        if right_anchor is None and valid_rows:
+            right_anchor = valid_rows[-1]
+
+    if left_anchor is None or right_anchor is None or right_anchor <= left_anchor:
+        return {"changed": 0, "reason": "not_enough_endpoints"}
+
+    first, last = left_anchor, right_anchor
+    missing_rows = [
+        row for row in range(first + 1, last)
+        if rows[0] <= row <= rows[-1] and trajectory[row][0] == -1000
+    ]
+    if not missing_rows:
+        return {"changed": 0, "reason": "no_missing_interior"}
+
+    start, end = rows[0], rows[-1] + 1
+    old = trajectory[start:end].copy() if include_old else None
+    replacement = old.copy() if materialize else None
+    updates = []
+    for raw in missing_rows:
+        ratio = (raw - first) / (last - first)
+        x_value = trajectory[first][0] + (
+            (trajectory[last][0] - trajectory[first][0]) * ratio
+        )
+        y_value = trajectory[first][1] + (
+            (trajectory[last][1] - trajectory[first][1]) * ratio
+        )
+        updates.append((raw, x_value, y_value))
+        if materialize:
+            replacement[raw - start, 0] = x_value
+            replacement[raw - start, 1] = y_value
+
+    return {
+        "changed": len(missing_rows),
+        "start": start,
+        "end": end,
+        "old": old,
+        "replacement": replacement,
+        "updates": updates,
+        "boundary_missing": first != rows[0] or last != rows[-1],
+    }
+
+
+def make_portion_video(Vid):
+    """Clone only the small mutable configuration needed for a rerun.
+
+    A deep copy of a Video also duplicates image lists, backgrounds, masks and
+    other frame-sized arrays.  Portion tracking only changes crop, target
+    metadata and tracking settings, so sharing the immutable source data here
+    avoids a large selection-dependent memory spike.
+    """
+    portion = copy.copy(Vid)
+    portion.Cropped = copy.deepcopy(Vid.Cropped)
+    portion.Identities = copy.deepcopy(Vid.Identities)
+    portion.Track = copy.deepcopy(Vid.Track)
+    for name in ("Stab", "Back", "Mask", "Entrance"):
+        if hasattr(Vid, name):
+            setattr(portion, name, copy.deepcopy(getattr(Vid, name)))
+    return portion
+
 
 class Lecteur(Frame):
     """This frame is used to show the results of the trackings.
@@ -70,6 +197,9 @@ class Lecteur(Frame):
         self.moved = False #The user moved a target
         self.selected_ind = 0 #Which is the selected target
         self.selected_rows= []#List of the rows selected by the user
+        self._table_scroll_after_id = None
+        self._pending_table_pos = None
+        self._table_scroll_debounce_ms = 16
         self.column_to_hide=[]#List of the individuals the user want's to hide
         self.column_to_show=[]#List of the individuals the user want's to see
 
@@ -321,6 +451,9 @@ class Lecteur(Frame):
 
 
     def On_mousewheel(self, event):
+        cancel = getattr(self, "cancel_table_scroll", None)
+        if cancel is not None:
+            cancel()
         return self.Scrollbar.on_mousewheel(event)
 
     def go_next_ID(self, *args):
@@ -420,7 +553,7 @@ class Lecteur(Frame):
             else:
                 self.bouton_redo_track.grid_forget()
             self.calculate_NA()
-            self.save_changes=[]
+            self._clear_undo_snapshots()
             self.copied_cells = []
             self.calculate_NA()
             self.modif_image()
@@ -448,7 +581,7 @@ class Lecteur(Frame):
                     self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every + 1)
 
 
-                self.TMP_Vid = copy.deepcopy(self.Vid)
+                self.TMP_Vid = make_portion_video(self.Vid)
                 self.TMP_Vid.Cropped[0] = 1
                 self.TMP_Vid.Cropped[1][0] = round(self.first * self.Vid_Lecteur.one_every)
                 self.TMP_Vid.Cropped[1][1] = round((self.last - 1) * self.Vid_Lecteur.one_every)
@@ -456,7 +589,11 @@ class Lecteur(Frame):
                 if len(self.selected_rows) > 2:  # It works only if we select more than two frames.
                     if answer==1:
                         self.inds_portion = range(len(self.Vid.Identities))#We will do it for all individuals
-                        new_Coos=self.Coos[:,(self.first- round(self.Vid.Cropped[1][0]/self.Vid_Lecteur.one_every)):(self.last- round(self.Vid.Cropped[1][0]/self.Vid_Lecteur.one_every)),:].copy()
+                        new_Coos=self._portion_coos(
+                            self.inds_portion,
+                            self.first - round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every),
+                            self.last - round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every),
+                        )
                         CoosLS.save(self.TMP_Vid, new_Coos, TMP=True, location=self)
 
                         #We create a new coordinates file with only the selected frames:
@@ -485,7 +622,11 @@ class Lecteur(Frame):
 
                     elif answer==0:
                         self.inds_portion = [idx for idx,ind in enumerate(self.Vid.Identities) if ind[0] == self.Vid.Identities[self.selected_ind][0]]
-                        new_Coos = self.Coos[self.inds_portion, (self.first - round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every)):(self.last - round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every)), :].copy()
+                        new_Coos = self._portion_coos(
+                            self.inds_portion,
+                            self.first - round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every),
+                            self.last - round(self.Vid.Cropped[1][0] / self.Vid_Lecteur.one_every),
+                        )
 
                         self.TMP_Vid.Identities = [ind for ind in self.Vid.Identities if ind[0] == self.Vid.Identities[self.selected_ind][0]]
                         self.TMP_Vid.Track[1][6]=[len(self.inds_portion)]
@@ -555,22 +696,16 @@ class Lecteur(Frame):
         )
 
 
-        with open(path, encoding="utf-8") as csv_file:
-            csv_reader = csv.reader(csv_file, delimiter=";")
-            or_table = list(csv_reader)
-
-        or_table = np.asarray(or_table)
-        or_table[or_table == "NA"] = -1000
-        or_table = or_table[1:, 2:]
-
         debut=self.first - self.to_sub
-        fin=self.first - self.to_sub + len(or_table[:, 0])
-        self.add_change("redo_track", self.inds_portion, [debut, fin], self.Coos[self.inds_portion, debut: fin,:].copy())
+        portion_coos, _ = CoosLS.load_coos(self.TMP_Vid, TMP=True, location=self)
+        fin = debut + len(portion_coos[0])
+        old = self._make_undo_snapshot_from_coos(self.inds_portion, debut, fin)
+        self.add_change("redo_track", self.inds_portion, [debut, fin], old)
 
         changed=0
         for Ind in range(len(self.Vid.Identities)):
             if self.inds_portion==None or Ind in self.inds_portion:
-                self.Coos[Ind,self.first - self.to_sub : self.first - self.to_sub +len(or_table[:,0]),:] = or_table[:,2 * changed:2 * changed + 2]
+                self.Coos[Ind, debut:fin, :] = portion_coos[changed, :, :self.Coos.shape[2]]
                 #self.Vid.Morphometrics[Ind] = [morpho for morpho in self.Vid.Morphometrics[Ind] if (morpho[0]<debut or morpho>fin)]
                 changed += 1
 
@@ -578,7 +713,7 @@ class Lecteur(Frame):
 
         self.redo_Lecteur()
         # We place the reader at the last corrected frame
-        self.Scrollbar.active_pos = int((self.first +len(or_table[:,0])-1))
+        self.Scrollbar.active_pos = int((self.first + len(portion_coos[0]) - 1))
         self.Scrollbar.refresh()
 
         self.last_shown=None
@@ -625,6 +760,8 @@ class Lecteur(Frame):
 
     def End_of_window(self):
         #We destroy the frame and go back to main menu
+        self.cancel_table_scroll()
+        self._clear_undo_snapshots()
         try:
             self.Vid_Lecteur.proper_close()
         except Exception as e:
@@ -763,7 +900,7 @@ class Lecteur(Frame):
             self.ID_Entry.insert(0, self.Vid.Identities[self.selected_ind][1])  # Write the name of the target
             self.Arena_Lab.config(text=self.Vid.Identities[self.selected_ind][0])  # Write the name of the Arena
             self.Can_Col.config(background="#%02x%02x%02x" % self.Vid.Identities[self.selected_ind][2])  # indicate the color of the new selected target
-            self.save_changes = []
+            self._clear_undo_snapshots()
             if ind1 == self.copied_cells[0] or ind2==self.copied_cells[0]:
                 self.copied_cells = []
 
@@ -855,7 +992,7 @@ class Lecteur(Frame):
     def add_change(self,type, ind, frames, old):
         self.save_changes.append([type, ind, frames, old])
         if len(self.save_changes)>20:
-            self.save_changes.pop(0)
+            _discard_undo_snapshot(self.save_changes.pop(0)[3])
 
         if len(self.copied_cells)>0:
             if type == "move" or type == "add_coos" or type == "removed" or type == "replaced":
@@ -912,10 +1049,63 @@ class Lecteur(Frame):
                     self.Coos[I,frames[0]:frames[1]]=old[changed]
                     #self.Vid.Morphometrics[I]=old[1][changed]
                     changed+=1
+            self.redo_who_is_here()
+            self.afficher_table(redo=True)
             self.modif_image()
             self.calculate_NA()
             self.save_changes.pop(-1)
             self.copied_cells=[]
+
+            _discard_undo_snapshot(old)
+
+    def _make_undo_snapshot(self, values):
+        """Store a large undo slice on disk instead of duplicating it in RAM."""
+        try:
+            undo_dir = UserMessages.tmp_portion_dir_path(self.Vid.Folder, create=True)
+            descriptor, path = tempfile.mkstemp(prefix="undo_", suffix=".dat", dir=undo_dir)
+            os.close(descriptor)
+            snapshot = np.memmap(path, dtype=values.dtype, mode="w+", shape=values.shape)
+            snapshot[:] = values
+            snapshot.flush()
+            return snapshot
+        except (OSError, ValueError):
+            return values.copy()
+
+    def _make_undo_snapshot_from_coos(self, indices, start, end):
+        """Build a disk-backed undo slice without advanced-indexing a full copy."""
+        indices = list(indices)
+        shape = (len(indices), end - start, self.Coos.shape[2])
+        try:
+            undo_dir = UserMessages.tmp_portion_dir_path(self.Vid.Folder, create=True)
+            descriptor, path = tempfile.mkstemp(prefix="undo_", suffix=".dat", dir=undo_dir)
+            os.close(descriptor)
+            snapshot = np.memmap(path, dtype=self.Coos.dtype, mode="w+", shape=shape)
+            for position, identity in enumerate(indices):
+                snapshot[position, :, :] = self.Coos[identity, start:end, :]
+            snapshot.flush()
+            return snapshot
+        except (OSError, ValueError):
+            return np.stack(
+                [self.Coos[identity, start:end, :].copy() for identity in indices],
+                axis=0,
+            )
+
+    def _portion_coos(self, indices, start, end):
+        """Select portion coordinates row-by-row to avoid advanced-index peaks."""
+        indices = list(indices)
+        if indices == list(range(self.Coos.shape[0])):
+            return self.Coos[:, start:end, :]
+        selected = np.empty(
+            (len(indices), end - start, self.Coos.shape[2]), dtype=self.Coos.dtype
+        )
+        for position, identity in enumerate(indices):
+            selected[position, :, :] = self.Coos[identity, start:end, :]
+        return selected
+
+    def _clear_undo_snapshots(self):
+        for _type, _ind, _frames, old in getattr(self, "save_changes", []):
+            _discard_undo_snapshot(old)
+        self.save_changes = []
 
 
     def Coos_new_windows(self):
@@ -1062,7 +1252,8 @@ class Lecteur(Frame):
         self.vsb = Scale(table, from_=self.to_sub, to=self.to_sub + len(self.Coos[0]) - 1, orient="vertical",
                          **Color_settings.My_colors.Scale_Base)
         self.vsb.grid(row=3, column=2, sticky="ns")
-        self.vsb.bind("<ButtonRelease-1>", self.move_tree)
+        self.vsb.bind("<B1-Motion>", self.move_tree)
+        self.vsb.bind("<ButtonRelease-1>", self.finish_tree_scroll)
         self.vsb.bind("<MouseWheel>", self.On_mousewheel)
         self.vsb.bind("<Button-4>", self.On_mousewheel)
         self.vsb.bind("<Button-5>", self.On_mousewheel)
@@ -1437,62 +1628,138 @@ class Lecteur(Frame):
         self.afficher_table(redo=True)
 
     def move_tree(self, event):
-        self.Scrollbar.active_pos=self.vsb.get()
+        self._pending_table_pos = int(self.vsb.get())
+        if self._table_scroll_after_id is None:
+            self._table_scroll_after_id = self.after(
+                self._table_scroll_debounce_ms, self._flush_table_scroll
+            )
+
+    def _flush_table_scroll(self):
+        self._table_scroll_after_id = None
+        position = self._pending_table_pos
+        self._pending_table_pos = None
+        if position is None:
+            return
+        self.Scrollbar.active_pos = position
         self.Scrollbar.refresh()
-        self.Vid_Lecteur.update_image(self.Scrollbar.active_pos)
+        self.Vid_Lecteur.update_image(position)
+
+    def finish_tree_scroll(self, _event=None):
+        """Apply the latest table-scale position immediately on release."""
+        callback_id = self._table_scroll_after_id
+        if callback_id is not None:
+            try:
+                self.after_cancel(callback_id)
+            except (AttributeError, TclError, ValueError):
+                pass
+            self._table_scroll_after_id = None
+        self._flush_table_scroll()
+
+    def cancel_table_scroll(self):
+        callback_id = self._table_scroll_after_id
+        if callback_id is not None:
+            try:
+                self.after_cancel(callback_id)
+            except (AttributeError, TclError, ValueError):
+                pass
+        self._table_scroll_after_id = None
+        self._pending_table_pos = None
+
+    def _show_interpolation_feedback(self, message):
+        """Tell the user why an interpolation request made no change."""
+        question = MsgBox.Messagebox(
+            parent=self,
+            title=self.Messages["Control5"],
+            message=message,
+            Possibilities=[self.Messages["Validate"]],
+        )
+        self.wait_window(question)
 
     def interpolate(self, *event):
-        #The coordinates of the selected target are changed by a straight line between the first and last frames from the selection.
-        if len(self.selected_rows)>2:
-            if (self.Coos[self.selected_ind,self.selected_rows[0],0]!=-1000 or self.Coos[self.selected_ind,self.selected_rows[-1],0]!=-1000):#Works only if the user selected more than 2 lines and not NAs in both first and last.
-                first=int(self.selected_rows[0])
-                last=int(self.selected_rows[-1])
+        # Interpolation is local to the selected interval.  The helper also
+        # looks one frame beyond the selection, so selecting only the missing
+        # rows between two known points works as users expect.
+        plan = prepare_interpolation(
+            self.Coos,
+            self.selected_ind,
+            self.selected_rows,
+            include_old=False,
+            materialize=False,
+        )
+        if plan.get("changed"):
+            old = self._make_undo_snapshot(
+                self.Coos[self.selected_ind, plan["start"]:plan["end"]]
+            )
+            self.add_change(
+                "interpolate",
+                self.selected_ind,
+                [plan["start"], plan["end"]],
+                old,
+            )
+            for raw, x_value, y_value in plan["updates"]:
+                self.Coos[self.selected_ind, raw, 0] = x_value
+                self.Coos[self.selected_ind, raw, 1] = y_value
+            self.redo_who_is_here()
+            self.calculate_NA()
+            self.afficher_table(redo=True)
+            self.modif_image()
 
-                add=0
-                if self.Coos[self.selected_ind,self.selected_rows[0],0] == -1000:
-                    first=last
-                elif self.Coos[self.selected_ind,self.selected_rows[-1],0] == -1000:
-                    last=first
-                    add = 1
+            if plan["boundary_missing"]:
+                self._show_interpolation_feedback(
+                    "Interpolated the selected missing frames using the nearest known coordinates."
+                )
+            return
 
-                self.add_change("interpolate", self.selected_ind, [first,last], self.Coos[self.selected_ind,first:last].copy())
-
-                for raw in self.selected_rows[0:len(self.selected_rows)-1+add]:
-                    raw=int(raw)
-                    self.Coos[self.selected_ind,raw,0] = (( self.Coos[self.selected_ind,first,0]) + ((( self.Coos[self.selected_ind,last,0]) - ( self.Coos[self.selected_ind,first,0])) * ((raw - first) / (len(self.selected_rows)-1))))
-                    self.Coos[self.selected_ind,raw,1] = (( self.Coos[self.selected_ind,first,1]) + ((( self.Coos[self.selected_ind,last,1]) - ( self.Coos[self.selected_ind,first,1])) * ((raw - first) / (len(self.selected_rows)-1))))
-                    if self.selected_ind not in self.who_is_here[raw]:
-                        self.who_is_here[raw].append(self.selected_ind)
-
-                self.calculate_NA()
-                self.modif_image()
-
-        else:
-            question = MsgBox.Messagebox(parent=self.main_frame.master,
-                                                          message=self.Messages["Control29"],
-                                                          Possibilities=[self.Messages["Control29A"],self.Messages["Control29B"],self.Messages["Control29C"]])
+        # Preserve the existing short-selection actions, including the
+        # all-video option.  Previously this dialog was reached for one/two
+        # selected rows; removing it made that workflow disappear.
+        if len(self.selected_rows) <= 2:
+            question = MsgBox.Messagebox(
+                parent=self.main_frame.master,
+                message=self.Messages["Control29"],
+                Possibilities=[
+                    self.Messages["Control29A"],
+                    self.Messages["Control29B"],
+                    self.Messages["Control29C"],
+                ],
+            )
             self.wait_window(question)
-            response=question.result
-            if response==0:
+            response = question.result
+            if response == 0:
                 self.correct_NA(self.selected_ind)
-            elif response==1:
+            elif response == 1:
                 self.correct_NA()
-            elif response==2:
-                question = MsgBox.Messagebox(parent=self, title="",
-                                             message=self.Messages["Control30"],
-                                             Possibilities=[self.Messages["Yes"], self.Messages["No"]])
+            elif response == 2:
+                question = MsgBox.Messagebox(
+                    parent=self,
+                    title="",
+                    message=self.Messages["Control30"],
+                    Possibilities=[self.Messages["Yes"], self.Messages["No"]],
+                )
                 self.wait_window(question)
-                answer = question.result
+                if question.result == 0:
+                    for video in self.main_frame.liste_of_videos:
+                        if video.Tracked:
+                            Interpolate_all.interpolate_all(video)
+                    self.Coos, self.who_is_here = CoosLS.load_coos(
+                        self.Vid, location=self
+                    )
+                    self.redo_who_is_here()
+                    self.selected_ind = 0
+                    self.afficher_table(redo=True)
+                    self.modif_image()
+            return
 
-                if answer==0:
-                    for Vid in self.main_frame.liste_of_videos:
-                        if Vid.Tracked:
-                            Interpolate_all.interpolate_all(Vid)
-                            self.Coos, self.who_is_here = CoosLS.load_coos(self.Vid, location=self)
-                            self.redo_who_is_here()
-                            self.selected_ind = 0
-                            self.afficher_table(redo=True)
-                            self.modif_image()
+        if not plan.get("changed"):
+            reasons = {
+                "no_selection": "Select a contiguous interval to interpolate.",
+                "invalid_selection": "The selected interval is not valid.",
+                "non_contiguous": "Select consecutive frames only.",
+                "too_short": "Select at least three consecutive frames.",
+                "not_enough_endpoints": "At least two known coordinates are required.",
+                "no_missing_interior": "There are no interior frames to interpolate.",
+            }
+            self._show_interpolation_feedback(reasons.get(plan.get("reason"), "No coordinates were changed."))
 
 
     def redo_who_is_here(self):
@@ -1869,7 +2136,7 @@ class Lecteur(Frame):
         self.redo_who_is_here()
         self.modif_image()
         self.calculate_NA()
-        self.save_changes=[]
+        self._clear_undo_snapshots()
         self.copied_cells = []
 
 

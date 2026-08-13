@@ -150,6 +150,15 @@ class Lecteur(Frame):
             return False
         return True
 
+    def _canvas_item_exists(self, item):
+        """Check a Canvas item without raising during widget teardown."""
+        if item is None or not self._is_open(require_canvas=True):
+            return False
+        try:
+            return bool(self.canvas_video.type(item))
+        except (AttributeError, TclError, ValueError):
+            return False
+
     def update_ratio(self, *args):
         '''Calculate the ratio between the original size of the video and the displayed image'''
         if not hasattr(self, "zoom_sq") or not self._is_open(require_canvas=True):
@@ -674,9 +683,14 @@ class Lecteur(Frame):
             if not self._is_open(require_canvas=True):
                 return None
             self.image_to_show3 = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(img2))
-            self.can_import = self.canvas_video.create_image((self.canvas_video.winfo_width()-self.shape[1])/2, (self.canvas_video.winfo_height()-self.shape[0])/2, image=self.image_to_show3, anchor=NW)
+            image_x = (self.canvas_video.winfo_width()-self.shape[1])/2
+            image_y = (self.canvas_video.winfo_height()-self.shape[0])/2
+            if self._canvas_item_exists(getattr(self, "can_import", None)):
+                self.canvas_video.coords(self.can_import, image_x, image_y)
+                self.canvas_video.itemconfig(self.can_import, image=self.image_to_show3)
+            else:
+                self.can_import = self.canvas_video.create_image(image_x, image_y, image=self.image_to_show3, anchor=NW)
             self.canvas_video.config(height=self.shape[1],width=self.shape[0])
-            self.canvas_video.itemconfig(self.can_import, image=self.image_to_show3)
             self.update_idletasks()
 
 

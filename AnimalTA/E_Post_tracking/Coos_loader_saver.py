@@ -86,40 +86,74 @@ def load_variable(Vid, path):
     load_frame = Class_loading_Frame.Loading(newWindow)  # Progression bar
     load_frame.grid()
 
-    with open(path, encoding="utf-8") as csv_file:
+    frame_count = int((Vid.Cropped[1][1] - Vid.Cropped[1][0]) / one_every) + 1
+    who_is_here = [[] for _ in range(frame_count)]
+    has_data = False
+    with open(path, encoding="utf-8", newline="") as csv_file:
         csv_reader = csv.reader(csv_file, delimiter=";")
-        or_table = list(csv_reader)
+        next(csv_reader, None)
+        has_data = next(csv_reader, None) is not None
 
-    who_is_here = [[] for x in range(int((Vid.Cropped[1][1] - Vid.Cropped[1][0]) / one_every) + 1)]
-    if len(or_table)==1:
-        Coos=np.full((1,(int((Vid.Cropped[1][1] - Vid.Cropped[1][0])/one_every) + 1),2),-1000, dtype=float)
+    identity_lookup = {}
+    for index, identity in enumerate(Vid.Identities):
+        arena, name = str(identity[0]), str(identity[1])
+        identity_lookup[(arena, name)] = index
+        identity_lookup[(arena, name[3:])] = index
+    identity_count = len(Vid.Identities) if has_data else 1
+    Coos = np.full((identity_count, frame_count, 2), -1000, dtype=float)
 
-    else:
-        Coos = np.full((len(Vid.Identities),(int((Vid.Cropped[1][1] - Vid.Cropped[1][0])/one_every) + 1),2),-1000, dtype=float)
-        or_table = np.asarray(or_table)
-        or_table[or_table=="NA"]=-1000
-
-        count = 0
-        for Ind in Vid.Identities:
-            load_frame.show_load(count / len(Vid.Identities))
-            subset = or_table[np.where((np.array(or_table[:, 2]) == str(Ind[0])) & (np.array(or_table[:, 3]) == str(Ind[1])))]
-            if len(subset)<=0:
-                subset = or_table[np.where((np.array(or_table[:, 2]) == str(Ind[0])) & (np.array(or_table[:, 3]) == str(Ind[1][3:])))]
-
-            if len(subset)>0:
-                time = subset[:, 0].astype('float')
-                time = time.astype('int32')
-                time=time-round(Vid.Cropped[1][0]/one_every)
-                T_Coos = subset[:, 4:6]
-                Coos[count, time, :] = T_Coos
-
-                for im in time:
-                    who_is_here[im] = who_is_here[im] + [count]
-            count += 1
+    with open(path, encoding="utf-8", newline="") as csv_file:
+        csv_reader = csv.reader(csv_file, delimiter=";")
+        next(csv_reader, None)
+        for row_index, row in enumerate(csv_reader):
+            if len(row) < 6:
+                continue
+            identity_index = identity_lookup.get((str(row[2]), str(row[3])))
+            if identity_index is None:
+                continue
+            try:
+                frame = int(float(row[0])) - round(Vid.Cropped[1][0] / one_every)
+                x, y = float(row[4]), float(row[5])
+            except (ValueError, TypeError):
+                continue
+            if 0 <= frame < frame_count:
+                Coos[identity_index, frame, :] = (x, y)
+                who_is_here[frame].append(identity_index)
+            if row_index % 1000 == 0:
+                load_frame.show_load(row_index / max(frame_count, 1))
 
     load_frame.destroy()
     newWindow.destroy()
     return(Coos, who_is_here)
+
+
+def _fixed_header(Vid, coordinate_width):
+    columns = []
+    for ind in Vid.Identities:
+        if coordinate_width == 2:
+            columns.extend(["X_Arena{}_Ind{}".format(ind[0], ind[1]),
+                            "Y_Arena{}_Ind{}".format(ind[0], ind[1])])
+        else:
+            columns.extend(
+                ["Coordinate{}_Arena{}_Ind{}".format(axis, ind[0], ind[1])
+                 for axis in range(coordinate_width)]
+            )
+    return ["Frame", "Time"] + columns
+
+
+def _fixed_csv_value(value):
+    return "NA" if value == -1000 else value.item() if hasattr(value, "item") else value
+
+
+def iter_fixed_rows(Vid, Coos):
+    """Yield fixed-tracking CSV rows without building an object-array copy."""
+    coordinate_width = Coos.shape[2]
+    yield _fixed_header(Vid, coordinate_width)
+    for frame in range(Coos.shape[1]):
+        row = [frame, round(frame / Vid.Frame_rate[1], 2)]
+        for ind in range(Coos.shape[0]):
+            row.extend(_fixed_csv_value(value) for value in Coos[ind, frame])
+        yield row
 
 
 def load_fixed(Vid, path, location=None):
@@ -132,36 +166,43 @@ def load_fixed(Vid, path, location=None):
     load_frame.show_load(0)
     load_frame.grab_set()
 
-    or_table=[]
-    with open(path, encoding="utf-8") as csv_file:
+    with open(path, encoding="utf-8", newline="") as csv_file:
         csv_reader = csv.reader(csv_file, delimiter=";")
-        count=0
-        for row in csv_reader:
-            or_table.append(row)
-            if count % 1000 == 0:
-                load_frame.show_load((count/Vid.Frame_nb[1])/3)
-            count+=1
+        header = next(csv_reader, [])
+        row_count = sum(1 for _row in csv_reader)
 
-    or_table = np.array(or_table)
+    identity_count = len(Vid.Identities)
+    if identity_count == 0:
+        coordinate_width = 2
+    else:
+        coordinate_columns = len(header) - 2
+        if coordinate_columns == 4 * identity_count:
+            coordinate_width = 4
+        elif coordinate_columns == 3 * identity_count:
+            coordinate_width = 3
+        else:
+            coordinate_width = 2
+    Coos = np.full(
+        (identity_count, row_count, coordinate_width), -1000, dtype=float
+    )
 
-    try:
-        Coos = np.full((len(Vid.Identities), len(or_table)-1, 3), -1000,dtype=float)#CTXT keep only except
-        or_table = np.asarray(or_table)
-        or_table[or_table == "NA"] = -1000
-        count=0
-        for Ind in range(len(Vid.Identities)):
-            load_frame.show_load(1/3 + (count / len(Vid.Identities))*2/3)
-            Coos[Ind] = or_table[1:,2*Ind+2:2*Ind+5]
-            count+=1
-    except:
-        Coos = np.full((len(Vid.Identities), len(or_table)-1, 2), -1000,dtype=float)
-        or_table = np.asarray(or_table)
-        or_table[or_table == "NA"] = -1000
-        count=0
-        for Ind in range(len(Vid.Identities)):
-            load_frame.show_load(1/3 + (count / len(Vid.Identities))*2/3)
-            Coos[Ind] = or_table[1:,2*Ind+2:2*Ind+4]
-            count+=1
+    with open(path, encoding="utf-8", newline="") as csv_file:
+        csv_reader = csv.reader(csv_file, delimiter=";")
+        next(csv_reader, None)
+        for row_index, row in enumerate(csv_reader):
+            for ind in range(identity_count):
+                start = 2 + ind * coordinate_width
+                values = row[start:start + coordinate_width]
+                if len(values) != coordinate_width:
+                    continue
+                for axis, value in enumerate(values):
+                    if value != "NA":
+                        try:
+                            Coos[ind, row_index, axis] = float(value)
+                        except ValueError:
+                            pass
+            if row_index % 1000 == 0:
+                load_frame.show_load(1 / 3 + (row_index / max(row_count, 1)) * 2 / 3)
 
     load_frame.destroy()
     if location==None:
@@ -178,27 +219,14 @@ def save_fixed(Vid, Coos, path, location=None):
     load_frame = Class_loading_Frame.Loading(frame)  # Progression bar
     load_frame.grid()
     load_frame.show_load(0)
-    General_Coos=np.zeros([Coos.shape[1]+1,Coos.shape[2]*Coos.shape[0]+2], dtype="object")
-
-    liste_times=range(0, Coos.shape[1])
-    General_Coos[1:,0]=liste_times[0:len(General_Coos[1:,0])]
-
-    tmp=np.array(General_Coos[1:, 0]/Vid.Frame_rate[1], dtype="float")
-    General_Coos[1:, 1]=np.around(tmp,2)
-
-    General_Coos[0,:]=["Frame","Time"]+[Col+"_Arena"+str(ind[0])+"_"+str(ind[1]) for ind in Vid.Identities for Col in ["X","Y"]]#CTXT,"Sleeping"
-    Coos = Coos.astype(dtype=object)
-    Coos[Coos==-1000]="NA"
-
-    for Ind in range(Coos.shape[0]):
-        load_frame.show_load(((Ind+1)/(Coos.shape[0]+1))*1/3)
-        General_Coos[1:,Ind*2+2:Ind*2+2+Coos.shape[2]]=Coos[Ind]
-
     with open(path, 'w', newline='', encoding="utf-8") as file:
         writer = csv.writer(file, delimiter=";")
-        for rows in range(300,len(General_Coos)+300,300):
-            writer.writerows(General_Coos[range(rows-300, min([len(General_Coos),rows]))])
-            load_frame.show_load(1/3 + ((rows) / Vid.Frame_nb[1])*2/3)
+        for row_index, row in enumerate(iter_fixed_rows(Vid, Coos)):
+            writer.writerow(row)
+            if row_index % 300 == 0:
+                load_frame.show_load(
+                    1 / 3 + (row_index / max(Coos.shape[1], 1)) * 2 / 3
+                )
 
     #np.savetxt(path, General_Coos, delimiter=';', encoding="utf-8", fmt='%s')
     load_frame.destroy()
@@ -209,12 +237,20 @@ def save_fixed(Vid, Coos, path, location=None):
 
 def save_variable(Vid, Coos, path):
     one_every = Vid.Frame_rate[0] / Vid.Frame_rate[1]
-    Pos=np.where(Coos[:,:,0]!=-1000)
-    new_Coos=Coos[Pos[0],Pos[1],:]
-    Ars=[Vid.Identities[P][0] for P in Pos[0]]
-    Inds = [Vid.Identities[P][1] for P in Pos[0]]
-    new_Coos=np.vstack((Pos[1]+round(Vid.Cropped[1][0]/one_every),(Pos[1]+round(Vid.Cropped[1][0])/one_every)/Vid.Frame_rate[1], Ars, Inds, new_Coos[:,0], new_Coos[:,1])).T
-    new_Coos=new_Coos[new_Coos[:,0].astype(float).argsort(),:]
-    first_row = ["Frame", "Time", "Arena", "Ind", "X", "Y"]
-    new_Coos=np.vstack([first_row, new_Coos])
-    np.savetxt(path, new_Coos, delimiter=';', encoding="utf-8", fmt='%s')
+    frame_offset = round(Vid.Cropped[1][0] / one_every)
+    with open(path, "w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.writer(csv_file, delimiter=";")
+        writer.writerow(["Frame", "Time", "Arena", "Ind", "X", "Y"])
+        for frame in range(Coos.shape[1]):
+            output_frame = frame + frame_offset
+            for ind in range(Coos.shape[0]):
+                if Coos[ind, frame, 0] == -1000:
+                    continue
+                writer.writerow([
+                    output_frame,
+                    output_frame / Vid.Frame_rate[1],
+                    Vid.Identities[ind][0],
+                    Vid.Identities[ind][1],
+                    Coos[ind, frame, 0],
+                    Coos[ind, frame, 1],
+                ])

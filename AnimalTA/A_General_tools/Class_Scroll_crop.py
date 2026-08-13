@@ -36,13 +36,18 @@ class Pers_Scroll(Canvas):
             else:
                 self.to_show_sub=0
 
-            self.video_length = self.fin - self.debut
+            # Keep the mapping usable for a one-frame timeline as well.
+            self.video_length = max(self.fin - self.debut, 1)
             self.active_pos=self.crop_beg#the current position of the frame reader (implemented at the first frame of the video, after cropping)
+            self._drag_after_id = None
+            self._pending_drag_pos = None
+            self._drag_debounce_ms = 16
             self.refresh()
 
             self.bind("<Motion>", self.afficher_frame)#Display a little square/info to tell the user what is the frame number under the mouse cursor
             self.bind("<Button-1>", self.activate_position)#Change the current frame
             self.bind("<B1-Motion>", self.move_position)#Change the current frame
+            self.bind("<ButtonRelease-1>", self._finish_drag)
             self.bind("<MouseWheel>", self.on_mousewheel)
             self.bind("<Button-4>", self.on_mousewheel)
             self.bind("<Button-5>", self.on_mousewheel)
@@ -59,19 +64,75 @@ class Pers_Scroll(Canvas):
         return (
             self._widget_exists(self)
             and self._widget_exists(self.parent)
+            and not getattr(self, "_closed", False)
             and getattr(self.Top, "closed", False) is False
         )
+
+    def _clamp_position(self, position):
+        """Return a valid displayed-frame position for every timeline action."""
+        return min(int(self.fin), max(int(self.debut), int(position)))
+
+    def _cancel_drag_callback(self):
+        callback_id = getattr(self, "_drag_after_id", None)
+        if callback_id is not None:
+            try:
+                self.after_cancel(callback_id)
+            except (AttributeError, TclError, ValueError):
+                pass
+        self._drag_after_id = None
+        self._pending_drag_pos = None
+
+    def _schedule_drag_update(self):
+        """Coalesce rapid drag events into one Tk callback."""
+        if not self._reader_is_ready():
+            return
+        if getattr(self, "_drag_after_id", None) is not None:
+            return
+        try:
+            self._drag_after_id = self.after(self._drag_debounce_ms, self._flush_drag_update)
+        except (AttributeError, TclError):
+            # A teardown race can remove the Tk command between the readiness
+            # check and after().  The reader will be closed by its owner.
+            self._drag_after_id = None
+
+    def _flush_drag_update(self):
+        """Apply the latest drag position, if the reader is still alive."""
+        self._drag_after_id = None
+        position = getattr(self, "_pending_drag_pos", None)
+        self._pending_drag_pos = None
+        if position is None or not self._reader_is_ready():
+            return
+
+        self.active_pos = self._clamp_position(position)
+        self.refresh()
+        if self._reader_is_ready():
+            self.Top.update_image(self.active_pos)
+
+    def _finish_drag(self, _event=None):
+        """Flush the last coalesced drag event when the button is released."""
+        callback_id = getattr(self, "_drag_after_id", None)
+        if callback_id is not None:
+            try:
+                self.after_cancel(callback_id)
+            except (AttributeError, TclError, ValueError):
+                pass
+            self._drag_after_id = None
+        if getattr(self, "_pending_drag_pos", None) is not None:
+            self._flush_drag_update()
 
     def close_N_destroy(self):
         '''
         Destroy the Scrollbar, this is called when the Video Reader is destroyed
         '''
+        self._closed = True
+        self._cancel_drag_callback()
         if not self._widget_exists(self):
             return
         self.delete("all")
         self.unbind("<Motion>")
         self.unbind("<Button-1>")
         self.unbind("<B1-Motion>")
+        self.unbind("<ButtonRelease-1>")
         self.unbind("<MouseWheel>")
         self.unbind("<Button-4>")
         self.unbind("<Button-5>")
@@ -80,6 +141,10 @@ class Pers_Scroll(Canvas):
         """Move exactly one displayed frame for Windows, macOS, and X11 wheels."""
         if not self._reader_is_ready():
             return "break"
+
+        cancel_drag_callback = getattr(self, "_cancel_drag_callback", None)
+        if cancel_drag_callback is not None:
+            cancel_drag_callback()
 
         button = getattr(event, "num", None)
         delta = getattr(event, "delta", 0)
@@ -90,11 +155,16 @@ class Pers_Scroll(Canvas):
         else:
             return "break"
 
-        new_pos = min(self.fin, max(self.debut, int(self.active_pos) + step))
+        clamp_position = getattr(self, "_clamp_position", None)
+        if clamp_position is None:
+            new_pos = min(self.fin, max(self.debut, int(self.active_pos) + step))
+        else:
+            new_pos = clamp_position(int(self.active_pos) + step)
         if new_pos != self.active_pos:
             self.active_pos = new_pos
             self.refresh()
-            self.Top.update_image(self.active_pos)
+            if self._reader_is_ready():
+                self.Top.update_image(self.active_pos)
 
         # Prevent Treeview/Scale class bindings from adding their own,
         # platform-dependent scroll after this precise frame step.
@@ -104,9 +174,10 @@ class Pers_Scroll(Canvas):
         #Draw/Redraw the timeline, each time something is modified or that the containing widget size changes, the timeline is redraw.
         if not self._reader_is_ready():
             return
+        self.active_pos = self._clamp_position(self.active_pos)
         width=self.parent.winfo_width()
-        largscroll = width - 60
-        largscan = width - 10
+        largscroll = max(width - 60, 1)
+        largscan = max(width - 10, 1)
         self.delete("all")
         self.create_rectangle(0, 0, self.decalage, 20, fill=self.list_colors["Timeline_back"])
         self.create_rectangle(self.decalage-1, 0, largscroll + self.decalage+1, 20, fill=self.list_colors["Timeline_out"])
@@ -141,7 +212,7 @@ class Pers_Scroll(Canvas):
         if not self._reader_is_ready():
             return
         width=self.parent.winfo_width()
-        largscroll = width - 60
+        largscroll = max(width - 60, 1)
         if event.x>self.decalage and event.x<largscroll+self.decalage and event.y>0 and event.y<20:
             self.refresh()
             self.create_rectangle(event.x-self.size_hide,20,event.x+self.size_hide,50, fill=self.list_colors["Timeline_back"],outline=self.list_colors["Timeline_back"])
@@ -156,11 +227,13 @@ class Pers_Scroll(Canvas):
         if not self._reader_is_ready():
             return
         width=self.parent.winfo_width()
-        largscroll = width - 60
+        largscroll = max(width - 60, 1)
         if event.x>self.decalage and event.x<largscroll+self.decalage and event.y>0 and event.y<20:
-            self.active_pos=int(self.debut + int((event.x-self.decalage) * self.video_length / largscroll))
+            self._cancel_drag_callback()
+            self.active_pos=self._clamp_position(self.debut + int((event.x-self.decalage) * self.video_length / max(largscroll, 1)))
             self.refresh()
-            self.Top.update_image(self.active_pos)
+            if self._reader_is_ready():
+                self.Top.update_image(self.active_pos)
 
     def move_position(self,event):
         '''
@@ -170,17 +243,18 @@ class Pers_Scroll(Canvas):
         if not self._reader_is_ready():
             return
         width=self.parent.winfo_width()
-        largscroll = width - 60
+        largscroll = max(width - 60, 1)
         if event.x>self.decalage and event.x<(largscroll+self.decalage):
-            self.active_pos=int(self.debut + round((event.x-self.decalage) * self.video_length / largscroll))
-            self.refresh()
-            self.Top.update_image(self.active_pos)
+            new_pos = self._clamp_position(self.debut + round((event.x-self.decalage) * self.video_length / max(largscroll, 1)))
         elif event.x<self.decalage:
-            self.active_pos=int(self.debut)
-            self.refresh()
-            self.Top.update_image(self.active_pos)
+            new_pos = self._clamp_position(self.debut)
 
         elif event.x>(largscroll+self.decalage):
-            self.active_pos=int(self.debut + round((largscroll) * self.video_length / largscroll))
-            self.refresh()
-            self.Top.update_image(self.active_pos)
+            new_pos = self._clamp_position(self.debut + round((max(largscroll, 1)) * self.video_length / max(largscroll, 1)))
+
+        else:
+            return
+
+        self.active_pos = new_pos
+        self._pending_drag_pos = new_pos
+        self._schedule_drag_update()
