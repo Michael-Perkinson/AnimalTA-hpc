@@ -6,6 +6,8 @@
 
 # Claude Code
 .claude/
+AGENTS.md
+docs/agents/
 
 # Built container
 *.sif

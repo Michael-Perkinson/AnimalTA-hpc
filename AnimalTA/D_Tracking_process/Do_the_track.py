@@ -299,8 +299,11 @@ def _do_tracking(parent, Vid, folder, type, portion=False, prev_row=None, arena_
         t0 = time.time()
         security_settings_track.capture = decord.VideoReader(Vid.Fusion[Which_part_first][1])  # Open video
         Prem_image_to_show = security_settings_track.capture[First_frame - Vid.Fusion[Which_part_first][0]].asnumpy()  # Take the first image
-        security_settings_track.capture.seek(0)
-        security_settings_track.capture = decord.VideoReader(Vid.Fusion[Which_part][1])  # Open video
+        if Which_part_first != Which_part:
+            # Tracking starts in a different segment than the preview frame -- close first
+            # before opening the second to avoid holding two readers simultaneously.
+            _close_tracking_capture()
+            security_settings_track.capture = decord.VideoReader(Vid.Fusion[Which_part][1])  # Open video
         security_settings_track.capture.seek(0)
         _tlog("video ready ({:.1f}s)".format(time.time()-t0))
 

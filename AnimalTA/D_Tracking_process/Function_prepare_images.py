@@ -118,10 +118,10 @@ def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_ima
                 img = image_utils.apply_relative_background(img, TMP_back)
 
             if Vid.Track[1][10][0] == 1:
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
         elif Vid.Back[0]==0 and Vid.Track[1][10][0] == 1:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
 
         #Threshold

@@ -1,6 +1,5 @@
 """Focused tests for tracking orchestration and UI progress isolation."""
 
-import pickle
 import inspect
 import threading
 from types import SimpleNamespace
@@ -10,52 +9,34 @@ import pytest
 from AnimalTA.D_Tracking_process import Tracking_method_selection
 
 
-@pytest.fixture
-def low_priority_settings(tmp_path, monkeypatch):
-    settings = tmp_path / "Settings"
-    settings.write_bytes(pickle.dumps({"Low_priority": True}))
-    monkeypatch.setattr(
-        Tracking_method_selection.UserMessages,
-        "settings_file_path",
-        lambda: str(settings),
-    )
-    monkeypatch.setattr(Tracking_method_selection, "_allocated_cpus", lambda: 4)
-
-
-def _video():
+def _video(back_mode=0):
     return SimpleNamespace(
         Frame_rate=[30, 30],
         Cropped=[True, [0, 2999]],
-        Back=[0],
+        Back=[back_mode],
         Fusion=[[0, "video.avi"]],
         User_Name="video",
     )
 
 
+def _parent():
+    return SimpleNamespace(timer=None, show_load=lambda: None)
+
+
 @pytest.mark.parametrize("update_ui, expected_updates", [(True, 1), (False, 0)])
-def test_choose_method_respects_ui_update_policy(
-    low_priority_settings,
-    monkeypatch,
-    update_ui,
-    expected_updates,
-):
+def test_choose_method_respects_ui_update_policy(monkeypatch, update_ui, expected_updates):
     updates = []
-    tracker_calls = []
     parent = SimpleNamespace(timer=None, show_load=lambda: updates.append(True))
+    tracker_calls = []
 
     def fake_tracking(**kwargs):
         tracker_calls.append(kwargs)
         return "tracked"
 
-    monkeypatch.setattr(Tracking_method_selection.Do_the_track, "Do_tracking", fake_tracking)
+    monkeypatch.setattr(Tracking_method_selection.Do_the_track_multi, "Do_tracking", fake_tracking)
 
     result = Tracking_method_selection.Choose_method(
-        parent,
-        _video(),
-        folder="project",
-        type="fixed",
-        head_tail=False,
-        update_ui=update_ui,
+        parent, _video(), folder="project", type="fixed", head_tail=False, update_ui=update_ui,
     )
 
     assert result == "tracked"
@@ -63,43 +44,65 @@ def test_choose_method_respects_ui_update_policy(
     assert tracker_calls[0]["update_ui"] is update_ui
 
 
-def test_parallel_fallback_keeps_worker_ui_updates_disabled(tmp_path, monkeypatch):
-    settings = tmp_path / "Settings"
-    settings.write_bytes(pickle.dumps({"Low_priority": False}))
-    monkeypatch.setattr(
-        Tracking_method_selection.UserMessages,
-        "settings_file_path",
-        lambda: str(settings),
-    )
-    monkeypatch.setattr(Tracking_method_selection, "_allocated_cpus", lambda: 4)
-    parent = SimpleNamespace(
-        timer=None,
-        show_load=lambda: (_ for _ in ()).throw(AssertionError("worker touched Tk")),
-    )
+def test_non_mog2_always_uses_parallel(monkeypatch):
     calls = []
-
-    def broken_multi(**kwargs):
-        calls.append(("multi", kwargs["update_ui"]))
-        raise RuntimeError("parallel worker failed")
-
-    def successful_single(**kwargs):
-        calls.append(("single", kwargs["update_ui"]))
-        return "fallback"
-
-    monkeypatch.setattr(Tracking_method_selection.Do_the_track_multi, "Do_tracking", broken_multi)
-    monkeypatch.setattr(Tracking_method_selection.Do_the_track, "Do_tracking", successful_single)
-
-    result = Tracking_method_selection.Choose_method(
-        parent,
-        _video(),
-        folder="project",
-        type="fixed",
-        head_tail=False,
-        update_ui=False,
+    monkeypatch.setattr(
+        Tracking_method_selection.Do_the_track_multi, "Do_tracking",
+        lambda **_: calls.append("parallel") or True,
+    )
+    monkeypatch.setattr(
+        Tracking_method_selection.Do_the_track, "Do_tracking",
+        lambda **_: (_ for _ in ()).throw(AssertionError("single-process called")),
     )
 
-    assert result == "fallback"
-    assert calls == [("multi", False), ("single", False)]
+    Tracking_method_selection.Choose_method(_parent(), _video(back_mode=0), "project", "fixed", False)
+    assert calls == ["parallel"]
+
+
+def test_mog2_uses_single_process(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        Tracking_method_selection.Do_the_track, "Do_tracking",
+        lambda **_: calls.append("single") or True,
+    )
+    monkeypatch.setattr(
+        Tracking_method_selection.Do_the_track_multi, "Do_tracking",
+        lambda **_: (_ for _ in ()).throw(AssertionError("parallel called for MOG2")),
+    )
+
+    Tracking_method_selection.Choose_method(_parent(), _video(back_mode=2), "project", "fixed", False)
+    assert calls == ["single"]
+
+
+@pytest.mark.parametrize("cpus", [1, 2, 3, 4, 5, 8, 16, 64])
+def test_cpu_count_never_triggers_single_process(monkeypatch, cpus):
+    monkeypatch.setattr(Tracking_method_selection, "_allocated_cpus", lambda: cpus)
+    calls = []
+    monkeypatch.setattr(
+        Tracking_method_selection.Do_the_track_multi, "Do_tracking",
+        lambda **_: calls.append("parallel") or True,
+    )
+    monkeypatch.setattr(
+        Tracking_method_selection.Do_the_track, "Do_tracking",
+        lambda **_: (_ for _ in ()).throw(AssertionError("single-process called")),
+    )
+
+    Tracking_method_selection.Choose_method(_parent(), _video(), "project", "fixed", False)
+    assert calls == ["parallel"]
+
+
+def test_parallel_exception_is_reraised(monkeypatch):
+    monkeypatch.setattr(
+        Tracking_method_selection.Do_the_track_multi, "Do_tracking",
+        lambda **_: (_ for _ in ()).throw(RuntimeError("worker died")),
+    )
+    monkeypatch.setattr(
+        Tracking_method_selection.Do_the_track, "Do_tracking",
+        lambda **_: (_ for _ in ()).throw(AssertionError("fallback must not start")),
+    )
+
+    with pytest.raises(RuntimeError, match="worker died"):
+        Tracking_method_selection.Choose_method(_parent(), _video(), "project", "fixed", False)
 
 
 def test_direct_tracking_entrypoints_keep_ui_updates_enabled_by_default():
@@ -114,10 +117,7 @@ def test_direct_tracking_entrypoints_keep_ui_updates_enabled_by_default():
     assert multi_default is True
 
 
-def test_background_progress_never_mutates_the_tk_parent(
-    low_priority_settings,
-    monkeypatch,
-):
+def test_background_progress_never_mutates_the_tk_parent(monkeypatch):
     class MainThreadOnlyParent:
         def __setattr__(self, name, value):
             if name == "timer":
@@ -134,19 +134,14 @@ def test_background_progress_never_mutates_the_tk_parent(
         progress.set(0.5)
         return "tracked"
 
-    monkeypatch.setattr(Tracking_method_selection.Do_the_track, "Do_tracking", fake_tracking)
+    monkeypatch.setattr(Tracking_method_selection.Do_the_track_multi, "Do_tracking", fake_tracking)
 
     result_box = []
     worker = threading.Thread(
         target=lambda: result_box.append(
             Tracking_method_selection.Choose_method(
-                MainThreadOnlyParent(),
-                _video(),
-                folder="project",
-                type="fixed",
-                head_tail=False,
-                update_ui=False,
-                progress=progress,
+                MainThreadOnlyParent(), _video(), folder="project", type="fixed",
+                head_tail=False, update_ui=False, progress=progress,
             )
         )
     )
@@ -167,68 +162,9 @@ def test_parallel_tracking_reserves_capacity_for_the_gui(monkeypatch):
     assert module._safe_worker_count(8, (480, 640, 3), reader_count=1) == 5
 
 
-def test_small_cpu_allocations_use_single_process(tmp_path, monkeypatch):
-    settings = tmp_path / "Settings"
-    settings.write_bytes(pickle.dumps({"Low_priority": False}))
-    monkeypatch.setattr(
-        Tracking_method_selection.UserMessages,
-        "settings_file_path",
-        lambda: str(settings),
-    )
-    monkeypatch.setattr(Tracking_method_selection, "_allocated_cpus", lambda: 3)
-    monkeypatch.setattr(
-        Tracking_method_selection.Do_the_track_multi,
-        "Do_tracking",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("parallel oversubscription")),
-    )
-    monkeypatch.setattr(
-        Tracking_method_selection.Do_the_track,
-        "Do_tracking",
-        lambda **_kwargs: "single",
-    )
-
-    assert Tracking_method_selection.Choose_method(
-        SimpleNamespace(timer=0, show_load=lambda: None),
-        _video(),
-        folder="project",
-        type="fixed",
-        head_tail=False,
-    ) == "single"
-
-
 def test_parallel_tracking_uses_spawn_from_the_background_thread():
     source = inspect.getsource(Tracking_method_selection.Do_the_track_multi.Do_tracking)
-
     assert 'multiprocessing.get_context("spawn")' in source
-
-
-@pytest.mark.parametrize(
-    "cpus, expected_backend",
-    [(1, "single"), (2, "single"), (3, "single"), (4, "parallel"),
-     (10, "parallel"), (64, "parallel")],
-)
-def test_method_selection_across_allocations(tmp_path, monkeypatch, cpus, expected_backend):
-    settings = tmp_path / "Settings"
-    settings.write_bytes(pickle.dumps({"Low_priority": False}))
-    monkeypatch.setattr(Tracking_method_selection.UserMessages, "settings_file_path", lambda: str(settings))
-    monkeypatch.setattr(Tracking_method_selection, "_allocated_cpus", lambda: cpus)
-    calls = []
-    monkeypatch.setattr(
-        Tracking_method_selection.Do_the_track,
-        "Do_tracking",
-        lambda **_kwargs: calls.append("single") or True,
-    )
-    monkeypatch.setattr(
-        Tracking_method_selection.Do_the_track_multi,
-        "Do_tracking",
-        lambda **_kwargs: calls.append("parallel") or True,
-    )
-
-    Tracking_method_selection.Choose_method(
-        SimpleNamespace(timer=0, show_load=lambda: None), _video(), "project", "fixed", False
-    )
-
-    assert calls == [expected_backend]
 
 
 def test_ten_cpu_ten_gb_job_reserves_gui_capacity(monkeypatch):
@@ -301,10 +237,7 @@ def test_tracking_progress_cancellation_is_thread_safe():
     assert progress.is_cancelled()
 
 
-def test_cancelled_parallel_failure_does_not_start_fallback(tmp_path, monkeypatch):
-    settings = tmp_path / "Settings"
-    settings.write_bytes(pickle.dumps({"Low_priority": False}))
-    monkeypatch.setattr(Tracking_method_selection.UserMessages, "settings_file_path", lambda: str(settings))
+def test_cancelled_parallel_failure_does_not_start_fallback(monkeypatch):
     monkeypatch.setattr(Tracking_method_selection, "_allocated_cpus", lambda: 10)
     progress = Tracking_method_selection.TrackingProgress()
 
@@ -314,8 +247,7 @@ def test_cancelled_parallel_failure_does_not_start_fallback(tmp_path, monkeypatc
 
     monkeypatch.setattr(Tracking_method_selection.Do_the_track_multi, "Do_tracking", cancel_then_fail)
     monkeypatch.setattr(
-        Tracking_method_selection.Do_the_track,
-        "Do_tracking",
+        Tracking_method_selection.Do_the_track, "Do_tracking",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("fallback started after cancellation")),
     )
 

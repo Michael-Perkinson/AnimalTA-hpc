@@ -7,6 +7,7 @@ from AnimalTA.E_Post_tracking.b_Analyses import Functions_Analyses_Speed, Interf
 from AnimalTA.E_Post_tracking.b_Analyses.Functions_analyses import Functions_trajectory_summarise
 from functools import partial
 import copy
+import gc
 import os
 import csv
 import numpy as np
@@ -324,6 +325,8 @@ class Extend(Frame):
                                 self.wait_window(question)
                             else:
                                 _apply_fixed_result(_V, result)
+                            self.list_vid_minus[_V].Back[1] = []
+                            gc.collect()
                             _step()
                         self._run_tracking_threaded(
                             lambda _vid=video, _folder=folder, _vn=cur_vid_counter[0], _vt=len(list_item), _head_tail=head_tail, _progress=progress: Tracking_method_selection.Choose_method(self, Vid=_vid, type="fixed", folder=_folder, head_tail=_head_tail, vid_num=_vn, vid_total=_vt, update_ui=False, progress=_progress),
@@ -347,6 +350,8 @@ class Extend(Frame):
                             else:
                                 succeed, Nb_targets = result
                                 _apply_variable_result(_V, succeed, Nb_targets)
+                            self.list_vid_minus[_V].Back[1] = []
+                            gc.collect()
                             _step()
                         self._run_tracking_threaded(
                             lambda _vid=video, _folder=folder, _vn=cur_vid_counter[0], _vt=len(list_item), _head_tail=head_tail, _progress=progress: Tracking_method_selection.Choose_method(self, Vid=_vid, folder=_folder, type="variable", head_tail=_head_tail, vid_num=_vn, vid_total=_vt, update_ui=False, progress=_progress),

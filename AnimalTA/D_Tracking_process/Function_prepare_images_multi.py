@@ -29,13 +29,13 @@ def _process_frame_cpu(img, TMP_back, Vid, mask, kernel):
             img = image_utils.apply_relative_background(img, TMP_back)
 
         if Vid.Track[1][10][0] == 1:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
         _, img = cv2.threshold(img, Vid.Track[1][0], 255, cv2.THRESH_BINARY)
 
     elif Vid.Back[0] == 0:
         if Vid.Track[1][10][0] == 1:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         if Vid.Track[1][10][1] == 2:
             img = cv2.bitwise_not(img)
         img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C,

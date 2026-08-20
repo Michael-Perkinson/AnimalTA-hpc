@@ -139,10 +139,10 @@ def Image_modif(Vid, Timg, Prem_image_to_show, mask, or_bright, approx=True):
             img = image_utils.apply_relative_background(img, TMP_back)
 
         if Vid.Track[1][10][0] == 1:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
     elif Vid.Back[0]==0 and Vid.Track[1][10][0] == 1:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
     #Threshold
     if Vid.Back[0]==1 or Vid.Back[0]==2:# ABack subtraction
