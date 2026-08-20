@@ -1,6 +1,14 @@
 import os
 import sys
 import cv2
+import multiprocessing
+
+
+def _allocated_cpus():
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        return multiprocessing.cpu_count()
 from AnimalTA.A_General_tools import UserMessages
 from pymediainfo import MediaInfo
 import subprocess
@@ -69,7 +77,7 @@ def _codec_args(use_nvenc, quality_vid, scale_filter=None):
             "-c:v", "libxvid",
             "-q:v", str(quality_vid),
             "-pix_fmt", "yuv420p",
-            "-threads", str(max(1, (os.cpu_count() or 2) // 2)),
+            "-threads", str(max(1, (_allocated_cpus() or 2) // 2)),
         ]
 
 

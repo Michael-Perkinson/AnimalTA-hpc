@@ -9,6 +9,13 @@ import multiprocessing
 import time
 
 
+def _allocated_cpus():
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        return multiprocessing.cpu_count()
+
+
 class Convert(Frame):
     """When the user ask to add new videos, these videos must be avi. If they are not, this window will open and ask the user which of the videos have to be converted to avi."""
     def __init__(self, parent, boss, list_to_convert, Video=None):
@@ -247,10 +254,7 @@ class Convert(Frame):
                     exc,
                 ))
 
-        if self.Params["Low_priority"]:
-            num_processes=1
-        else:
-            num_processes = min(max(1, multiprocessing.cpu_count() - 1), len(all_process))
+        num_processes = min(_allocated_cpus(), len(all_process))
 
         if len(all_process) == 0:
             self._set_conversion_controls_enabled(True)
