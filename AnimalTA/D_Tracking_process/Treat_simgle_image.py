@@ -22,7 +22,7 @@ def Prepare_Vid(Vid, Prem_img, type, portion=False, arena_interest=None):
     try:  # Old version of AnimalTA did not had the option for lightness correction, so Vid.Track[1][7] would result in error in case of old .ata files.
         if Vid.Track[1][7]:  # If True, the user chose to correct the lightness, this code allows to take the average lightness value of the first frame and to calculate the first and third quartiles of lightness values.
             if Vid.Back[0]!=1:
-                grey = cv2.cvtColor(Prem_image_to_show, cv2.COLOR_BGR2GRAY)
+                grey = cv2.cvtColor(Prem_image_to_show, cv2.COLOR_RGB2GRAY)
             else:
                 grey = Vid.Back[1].copy()
 
@@ -117,7 +117,7 @@ def Image_modif(Vid, Timg, Prem_image_to_show, mask, or_bright, approx=True):
 
     #Convert to grey
     if Vid.Track[1][10][0]==0:
-        Timg = cv2.cvtColor(Timg, cv2.COLOR_BGR2GRAY)
+        Timg = cv2.cvtColor(Timg, cv2.COLOR_RGB2GRAY)
 
     # If we want to apply light correction:
     if Vid.Track[1][7]:

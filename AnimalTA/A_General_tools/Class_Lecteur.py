@@ -338,7 +338,7 @@ class Lecteur(Frame):
 
             if not self.show_whole_frame:
                 if self.Vid.Back[0]!=1:
-                    grey = cv2.cvtColor(self.Prem_image_to_show, cv2.COLOR_BGR2GRAY)
+                    grey = cv2.cvtColor(self.Prem_image_to_show, cv2.COLOR_RGB2GRAY)
                 else:
                     grey = self.Vid.Back[1].copy()
 

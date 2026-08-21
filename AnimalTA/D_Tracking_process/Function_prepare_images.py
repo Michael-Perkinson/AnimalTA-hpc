@@ -88,7 +88,7 @@ def Image_modif(Security_break, Vid, start, end, one_every, Which_part, Prem_ima
         #Timg_or=Timg.copy()
         #Convert to grey
         if Vid.Track[1][10][0]==0:
-            Timg = cv2.cvtColor(Timg, cv2.COLOR_BGR2GRAY)
+            Timg = cv2.cvtColor(Timg, cv2.COLOR_RGB2GRAY)
 
 
         # If we want to apply light correction:

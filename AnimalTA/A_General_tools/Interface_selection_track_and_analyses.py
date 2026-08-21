@@ -325,7 +325,8 @@ class Extend(Frame):
                                 self.wait_window(question)
                             else:
                                 _apply_fixed_result(_V, result)
-                            self.list_vid_minus[_V].Back[1] = []
+                            if self.list_vid_minus[_V].Back[0] != 1:
+                                self.list_vid_minus[_V].Back[1] = []
                             gc.collect()
                             _step()
                         self._run_tracking_threaded(
@@ -350,7 +351,8 @@ class Extend(Frame):
                             else:
                                 succeed, Nb_targets = result
                                 _apply_variable_result(_V, succeed, Nb_targets)
-                            self.list_vid_minus[_V].Back[1] = []
+                            if self.list_vid_minus[_V].Back[0] != 1:
+                                self.list_vid_minus[_V].Back[1] = []
                             gc.collect()
                             _step()
                         self._run_tracking_threaded(
